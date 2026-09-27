@@ -268,27 +268,17 @@
       }
       button.disabled=true;
       button.textContent='Logging in...';
-      window.__arkLoginFlowActive=true;
+      var persistencePromise;
       try{
-        await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+        persistencePromise=auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+        await persistencePromise;
       }catch(persistErr){
-        console.warn('Admin LOCAL persistence unavailable; continuing with Firebase default persistence:',persistErr);
+        console.warn('Admin LOCAL persistence could not be set; Firebase will use its available persistence:',persistErr);
       }
-      try{await auth.authStateReady();}catch(e){console.warn('Admin auth initialization before login:',e)}
-      var loginPromise=auth.signInWithEmailAndPassword(loginEmail,loginPassword);
-      var timeoutPromise=new Promise(function(_,reject){setTimeout(function(){reject(new Error('Login request timed out. Please try again.'));},15000)});
-      var credential=await Promise.race([loginPromise,timeoutPromise]);
+      var credential=await auth.signInWithEmailAndPassword(loginEmail,loginPassword);
       if(!credential||!credential.user)throw new Error('Login did not return an authenticated user.');
-      loginScreen.classList.add('hidden');
-      dashboard.classList.remove('hidden');
-      resetAdminView();
-      try{
-        await startDashboard();
-      }catch(loadErr){
-        var loadMsg=loadErr&&loadErr.message?loadErr.message:'Some admin data could not be loaded.';
-        if(msg){msg.textContent='Login successful. Dashboard data warning: '+loadMsg;msg.classList.remove('hidden');}
-        console.error('Admin dashboard load failed after successful login:',loadErr);
-      }
+      // The auth-state observer is the single owner of dashboard rendering.
+      // Do not startDashboard() here; this prevents duplicate/racing dashboard loads.
     }catch(err){
       if(msg){
         var code=err&&err.code?String(err.code)+' — ':'';
@@ -298,7 +288,6 @@
       try{email.value=loginEmail;password.value=loginPassword;}catch(e){}
       console.error('Admin login failed:',err);
     }finally{
-      window.__arkLoginFlowActive=false;
       button.disabled=false;
       button.textContent='Login';
     }
@@ -685,43 +674,39 @@ if(!window.auth){
   loginMsg.textContent='Admin login service is not available. Please refresh the page.';
   loginMsg.classList.remove('hidden');
 }else{
-  (async function(){
-    try{
-      if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
-    }catch(e){
-      console.error('Admin auth state initialization failed:',e);
-    }
-    const renderAuthState=async user=>{
-      if(user){
-        if(window.__arkLoginFlowActive)return;
+  // Firebase Auth is the source of truth. Restore its LOCAL persistence once,
+  // then let one auth-state observer own the login/dashboard transition.
+  try{window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e){console.warn('Admin auth persistence setup:',e)});}catch(e){console.warn('Admin auth persistence setup:',e)}
+  window.auth.onAuthStateChanged(async function(user){
+    if(user){
+      loginScreen.classList.add('hidden');
+      dashboard.classList.remove('hidden');
+      resetAdminView();
+      try{
+        await startDashboard();
+      }catch(e){
+        // Never turn an authenticated user into a fake logout because dashboard
+        // data/UI hydration failed. Keep the authenticated dashboard visible.
+        console.error('Admin dashboard load failed for authenticated user:',e);
+        dashboard.classList.remove('hidden');
         loginScreen.classList.add('hidden');
-        dashboard.classList.add('hidden');
-        resetAdminView();
-        try{
-          await startDashboard();
-          dashboard.classList.remove('hidden');
-        }catch(e){
-          console.error('Admin dashboard load failed:',e);
-          dashboard.classList.add('hidden');
-          loginScreen.classList.remove('hidden');
-          loginMsg.textContent='Admin data could not be loaded. Please refresh and try again.';
+        if(loginMsg){
+          loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
           loginMsg.classList.remove('hidden');
         }
-      }else{
-        dashboard.classList.add('hidden');
-        loginScreen.classList.remove('hidden');
-        resetAdminView();
-        loginScreen.scrollTop=0;
-        try{
-          const s=await db.ref('siteContent/brand/logoUrl').once('value');
-          loginLogo.src=s.val()||ARK_DEFAULT.brand.logoUrl;
-        }catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}
       }
-    };
-    window.auth.onAuthStateChanged(renderAuthState);
-    await renderAuthState(window.auth.currentUser);
-  })();
-}</script><script>
+    }else{
+      dashboard.classList.add('hidden');
+      loginScreen.classList.remove('hidden');
+      resetAdminView();
+      loginScreen.scrollTop=0;
+      try{
+        const snap=await db.ref('siteContent/brand/logoUrl').once('value');
+        loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
+      }catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}
+    }
+  });
+}<script>
 (function(){
   const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
   if(!login||!card||fields.some(x=>!x))return;
