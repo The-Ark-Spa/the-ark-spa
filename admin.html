@@ -268,12 +268,12 @@
       }
       button.disabled=true;
       button.textContent='Logging in...';
-      // A refresh-safe Admin session is mandatory. Do not silently continue
-      // with non-persistent Auth because that creates the exact false-logout bug.
+      // Prefer a refresh-safe persistent session, but never block a valid
+      // credential login if this browser rejects LOCAL persistence.
       try{
         await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
       }catch(persistErr){
-        throw new Error('Admin session persistence could not be enabled. Login was not completed.');
+        console.warn('Admin LOCAL persistence could not be set before sign-in:',persistErr);
       }
       var credential=await auth.signInWithEmailAndPassword(loginEmail,loginPassword);
       if(!credential||!credential.user)throw new Error('Login did not return an authenticated user.');
