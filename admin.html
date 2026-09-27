@@ -674,9 +674,13 @@ if(!window.auth){
   loginMsg.textContent='Admin login service is not available. Please refresh the page.';
   loginMsg.classList.remove('hidden');
 }else{
-  // One Auth observer owns the Login/Dashboard state.
-  // Register it immediately so Firebase can deliver the restored LOCAL user.
+  // Firebase can emit its initial null state while a fresh sign-in is already
+  // completing. Serialize Auth UI transitions so that stale callbacks cannot
+  // put the Login screen back over a successful dashboard session.
+  let authUiSequence=0;
+  let authInitialResolved=false;
   window.auth.onAuthStateChanged(async function(user){
+    const seq=++authUiSequence;
     if(user){
       loginScreen.classList.add('hidden');
       dashboard.classList.remove('hidden');
@@ -685,6 +689,7 @@ if(!window.auth){
         await startDashboard();
       }catch(e){
         console.error('Admin dashboard load failed for authenticated user:',e);
+        if(seq!==authUiSequence || !window.auth.currentUser)return;
         dashboard.classList.remove('hidden');
         loginScreen.classList.add('hidden');
         if(loginMsg){
@@ -693,25 +698,34 @@ if(!window.auth){
         }
       }
     }else{
+      // Do not render Login from a stale/initial null event if Auth has
+      // already restored or accepted a signed-in user.
+      try{
+        if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
+      }catch(e){}
+      if(seq!==authUiSequence || window.auth.currentUser)return;
+      authInitialResolved=true;
       dashboard.classList.add('hidden');
       loginScreen.classList.remove('hidden');
       resetAdminView();
       loginScreen.scrollTop=0;
       try{
         const snap=await db.ref('siteContent/brand/logoUrl').once('value');
-        loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
-      }catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}
+        if(seq===authUiSequence && !window.auth.currentUser)
+          loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
+      }catch(e){
+        if(seq===authUiSequence && !window.auth.currentUser) loginLogo.src=ARK_DEFAULT.brand.logoUrl;
+      }
     }
   });
-  // Wait only for Firebase's initial Auth resolution; the observer above remains
-  // the sole owner of the UI transition.
+  // Wait for Firebase's initial Auth resolution without taking ownership
+  // away from the observer above.
   try{
     if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
   }catch(e){
     console.warn('Admin auth state initialization:',e);
   }
-}</script><script>
-(function(){
+}</script><script>(function(){
   const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
   if(!login||!card||fields.some(x=>!x))return;
   const vv=window.visualViewport;
