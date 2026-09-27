@@ -624,14 +624,15 @@ if(!window.auth){
   loginMsg.textContent='Admin login service is not available. Please refresh the page.';
   loginMsg.classList.remove('hidden');
 }else{
-  // Firebase can emit its initial null state while a fresh sign-in is already
-  // completing. Serialize Auth UI transitions so that stale callbacks cannot
-  // put the Login screen back over a successful dashboard session.
-  let authUiSequence=0;
-  let authInitialResolved=false;
-  window.auth.onAuthStateChanged(async function(user){
-    const seq=++authUiSequence;
-    if(user){
+  // Resolve Firebase's initial Auth state before attaching the UI observer.
+  // This removes the initial-null race without blocking the Login form binding.
+  (async function bootAdminAuth(){
+    try{
+      if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
+    }catch(e){
+      console.warn('Admin auth state initialization:',e);
+    }
+    if(window.auth.currentUser){
       loginScreen.classList.add('hidden');
       dashboard.classList.remove('hidden');
       resetAdminView();
@@ -639,42 +640,58 @@ if(!window.auth){
         await startDashboard();
       }catch(e){
         console.error('Admin dashboard load failed for authenticated user:',e);
-        if(seq!==authUiSequence || !window.auth.currentUser)return;
-        dashboard.classList.remove('hidden');
-        loginScreen.classList.add('hidden');
-        if(loginMsg){
-          loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
-          loginMsg.classList.remove('hidden');
+        if(window.auth.currentUser){
+          dashboard.classList.remove('hidden');
+          loginScreen.classList.add('hidden');
+          if(loginMsg){
+            loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
+            loginMsg.classList.remove('hidden');
+          }
         }
       }
     }else{
-      // Do not render Login from a stale/initial null event if Auth has
-      // already restored or accepted a signed-in user.
-      try{
-        if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
-      }catch(e){}
-      if(seq!==authUiSequence || window.auth.currentUser)return;
-      authInitialResolved=true;
       dashboard.classList.add('hidden');
       loginScreen.classList.remove('hidden');
       resetAdminView();
       loginScreen.scrollTop=0;
       try{
         const snap=await db.ref('siteContent/brand/logoUrl').once('value');
-        if(seq===authUiSequence && !window.auth.currentUser)
-          loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
+        if(!window.auth.currentUser) loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
       }catch(e){
-        if(seq===authUiSequence && !window.auth.currentUser) loginLogo.src=ARK_DEFAULT.brand.logoUrl;
+        if(!window.auth.currentUser) loginLogo.src=ARK_DEFAULT.brand.logoUrl;
       }
     }
-  });
-  // Wait for Firebase's initial Auth resolution without using top-level await.
-  // Keeping this non-blocking allows the Login form binding above to execute.
-  if(typeof window.auth.authStateReady==='function'){
-    window.auth.authStateReady().catch(function(e){
-      console.warn('Admin auth state initialization:',e);
+    window.auth.onAuthStateChanged(async function(user){
+      if(user){
+        loginScreen.classList.add('hidden');
+        dashboard.classList.remove('hidden');
+        resetAdminView();
+        try{
+          await startDashboard();
+        }catch(e){
+          console.error('Admin dashboard load failed for authenticated user:',e);
+          if(!window.auth.currentUser)return;
+          dashboard.classList.remove('hidden');
+          loginScreen.classList.add('hidden');
+          if(loginMsg){
+            loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
+            loginMsg.classList.remove('hidden');
+          }
+        }
+      }else{
+        dashboard.classList.add('hidden');
+        loginScreen.classList.remove('hidden');
+        resetAdminView();
+        loginScreen.scrollTop=0;
+        try{
+          const snap=await db.ref('siteContent/brand/logoUrl').once('value');
+          if(!window.auth.currentUser) loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
+        }catch(e){
+          if(!window.auth.currentUser) loginLogo.src=ARK_DEFAULT.brand.logoUrl;
+        }
+      }
     });
-  }
+  })();
 }</script><script>(function(){
   const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
   if(!login||!card||fields.some(x=>!x))return;
