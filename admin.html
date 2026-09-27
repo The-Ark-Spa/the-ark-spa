@@ -268,12 +268,12 @@
       }
       button.disabled=true;
       button.textContent='Logging in...';
-      var persistencePromise;
+      // A refresh-safe Admin session is mandatory. Do not silently continue
+      // with non-persistent Auth because that creates the exact false-logout bug.
       try{
-        persistencePromise=auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-        await persistencePromise;
+        await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
       }catch(persistErr){
-        console.warn('Admin LOCAL persistence could not be set; Firebase will use its available persistence:',persistErr);
+        throw new Error('Admin session persistence could not be enabled. Login was not completed.');
       }
       var credential=await auth.signInWithEmailAndPassword(loginEmail,loginPassword);
       if(!credential||!credential.user)throw new Error('Login did not return an authenticated user.');
@@ -674,42 +674,42 @@ if(!window.auth){
   loginMsg.textContent='Admin login service is not available. Please refresh the page.';
   loginMsg.classList.remove('hidden');
 }else{
-  // Let Firebase restore the existing LOCAL session before rendering the UI.
-  // Persistence is configured only during an explicit login, not during boot.
-  (async function(){
-    try{
-      if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
-    }catch(e){
-      console.warn('Admin auth state initialization:',e);
-    }
-    window.auth.onAuthStateChanged(async function(user){
-      if(user){
-        loginScreen.classList.add('hidden');
+  // One Auth observer owns the Login/Dashboard state.
+  // Register it immediately so Firebase can deliver the restored LOCAL user.
+  window.auth.onAuthStateChanged(async function(user){
+    if(user){
+      loginScreen.classList.add('hidden');
+      dashboard.classList.remove('hidden');
+      resetAdminView();
+      try{
+        await startDashboard();
+      }catch(e){
+        console.error('Admin dashboard load failed for authenticated user:',e);
         dashboard.classList.remove('hidden');
-        resetAdminView();
-        try{
-          await startDashboard();
-        }catch(e){
-          console.error('Admin dashboard load failed for authenticated user:',e);
-          dashboard.classList.remove('hidden');
-          loginScreen.classList.add('hidden');
-          if(loginMsg){
-            loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
-            loginMsg.classList.remove('hidden');
-          }
+        loginScreen.classList.add('hidden');
+        if(loginMsg){
+          loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
+          loginMsg.classList.remove('hidden');
         }
-      }else{
-        dashboard.classList.add('hidden');
-        loginScreen.classList.remove('hidden');
-        resetAdminView();
-        loginScreen.scrollTop=0;
-        try{
-          const snap=await db.ref('siteContent/brand/logoUrl').once('value');
-          loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
-        }catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}
       }
-    });
-  })();
+    }else{
+      dashboard.classList.add('hidden');
+      loginScreen.classList.remove('hidden');
+      resetAdminView();
+      loginScreen.scrollTop=0;
+      try{
+        const snap=await db.ref('siteContent/brand/logoUrl').once('value');
+        loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
+      }catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}
+    }
+  });
+  // Wait only for Firebase's initial Auth resolution; the observer above remains
+  // the sole owner of the UI transition.
+  try{
+    if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
+  }catch(e){
+    console.warn('Admin auth state initialization:',e);
+  }
 }</script><script>
 (function(){
   const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
