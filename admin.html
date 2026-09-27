@@ -257,30 +257,37 @@
   window.arkAdminLogin=async function(){
     if(msg){msg.classList.add('hidden');msg.textContent='';}
     var auth=window.auth;
+    var loginEmail=email.value.trim();
+    var loginPassword=password.value;
     try{
       if(!auth&&window.firebase&&typeof firebase.auth==='function')auth=firebase.auth();
       if(!auth)throw new Error('Admin login service is not available.');
-      if(!email.value.trim()||!password.value){if(msg){msg.textContent='Please enter Admin Email and Password.';msg.classList.remove('hidden');}return;}
+      if(!loginEmail||!loginPassword){
+        if(msg){msg.textContent='Please enter Admin Email and Password.';msg.classList.remove('hidden');}
+        return;
+      }
       button.disabled=true;
       button.textContent='Logging in...';
       window.__arkLoginFlowActive=true;
-      await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      try{
+        await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+      }catch(persistErr){
+        console.warn('Admin LOCAL persistence unavailable; continuing with Firebase default persistence:',persistErr);
+      }
       try{await auth.authStateReady();}catch(e){console.warn('Admin auth initialization before login:',e)}
-      var loginPromise=auth.signInWithEmailAndPassword(email.value.trim(),password.value);
+      var loginPromise=auth.signInWithEmailAndPassword(loginEmail,loginPassword);
       var timeoutPromise=new Promise(function(_,reject){setTimeout(function(){reject(new Error('Login request timed out. Please try again.'));},15000)});
       var credential=await Promise.race([loginPromise,timeoutPromise]);
       if(!credential||!credential.user)throw new Error('Login did not return an authenticated user.');
       loginScreen.classList.add('hidden');
-      dashboard.classList.add('hidden');
+      dashboard.classList.remove('hidden');
       resetAdminView();
       try{
         await startDashboard();
-        dashboard.classList.remove('hidden');
       }catch(loadErr){
-        loginScreen.classList.remove('hidden');
-        var loadMsg=loadErr&&loadErr.message?loadErr.message:'Admin dashboard could not be loaded.';
-        if(msg){msg.textContent='Login succeeded, but the admin panel could not load: '+loadMsg;msg.classList.remove('hidden');}
-        console.error('Admin dashboard load failed after login:',loadErr);
+        var loadMsg=loadErr&&loadErr.message?loadErr.message:'Some admin data could not be loaded.';
+        if(msg){msg.textContent='Login successful. Dashboard data warning: '+loadMsg;msg.classList.remove('hidden');}
+        console.error('Admin dashboard load failed after successful login:',loadErr);
       }
     }catch(err){
       if(msg){
@@ -288,6 +295,7 @@
         msg.textContent=code+(err&&err.message?err.message:'Login failed. Please try again.');
         msg.classList.remove('hidden');
       }
+      try{email.value=loginEmail;password.value=loginPassword;}catch(e){}
       console.error('Admin login failed:',err);
     }finally{
       window.__arkLoginFlowActive=false;
