@@ -668,12 +668,12 @@ if(!window.auth){
       }
     }
   });
-  // Wait for Firebase's initial Auth resolution without taking ownership
-  // away from the observer above.
-  try{
-    if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
-  }catch(e){
-    console.warn('Admin auth state initialization:',e);
+  // Wait for Firebase's initial Auth resolution without using top-level await.
+  // Keeping this non-blocking allows the Login form binding above to execute.
+  if(typeof window.auth.authStateReady==='function'){
+    window.auth.authStateReady().catch(function(e){
+      console.warn('Admin auth state initialization:',e);
+    });
   }
 }</script><script>(function(){
   const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
