@@ -674,38 +674,42 @@ if(!window.auth){
   loginMsg.textContent='Admin login service is not available. Please refresh the page.';
   loginMsg.classList.remove('hidden');
 }else{
-  // Firebase Auth is the source of truth. Restore its LOCAL persistence once,
-  // then let one auth-state observer own the login/dashboard transition.
-  try{window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e){console.warn('Admin auth persistence setup:',e)});}catch(e){console.warn('Admin auth persistence setup:',e)}
-  window.auth.onAuthStateChanged(async function(user){
-    if(user){
-      loginScreen.classList.add('hidden');
-      dashboard.classList.remove('hidden');
-      resetAdminView();
-      try{
-        await startDashboard();
-      }catch(e){
-        // Never turn an authenticated user into a fake logout because dashboard
-        // data/UI hydration failed. Keep the authenticated dashboard visible.
-        console.error('Admin dashboard load failed for authenticated user:',e);
-        dashboard.classList.remove('hidden');
-        loginScreen.classList.add('hidden');
-        if(loginMsg){
-          loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
-          loginMsg.classList.remove('hidden');
-        }
-      }
-    }else{
-      dashboard.classList.add('hidden');
-      loginScreen.classList.remove('hidden');
-      resetAdminView();
-      loginScreen.scrollTop=0;
-      try{
-        const snap=await db.ref('siteContent/brand/logoUrl').once('value');
-        loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
-      }catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}
+  // Let Firebase restore the existing LOCAL session before rendering the UI.
+  // Persistence is configured only during an explicit login, not during boot.
+  (async function(){
+    try{
+      if(typeof window.auth.authStateReady==='function') await window.auth.authStateReady();
+    }catch(e){
+      console.warn('Admin auth state initialization:',e);
     }
-  });
+    window.auth.onAuthStateChanged(async function(user){
+      if(user){
+        loginScreen.classList.add('hidden');
+        dashboard.classList.remove('hidden');
+        resetAdminView();
+        try{
+          await startDashboard();
+        }catch(e){
+          console.error('Admin dashboard load failed for authenticated user:',e);
+          dashboard.classList.remove('hidden');
+          loginScreen.classList.add('hidden');
+          if(loginMsg){
+            loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
+            loginMsg.classList.remove('hidden');
+          }
+        }
+      }else{
+        dashboard.classList.add('hidden');
+        loginScreen.classList.remove('hidden');
+        resetAdminView();
+        loginScreen.scrollTop=0;
+        try{
+          const snap=await db.ref('siteContent/brand/logoUrl').once('value');
+          loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
+        }catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}
+      }
+    });
+  })();
 }</script><script>
 (function(){
   const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
