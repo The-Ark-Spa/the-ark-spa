@@ -245,7 +245,43 @@
 #heroAdjustModal .hero-adjust-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px}
 #heroAdjustModal .hero-adjust-instruction{color:var(--green);font-size:13px;font-weight:700}
 @media(max-width:760px){#heroAdjustModal{padding:8px}#heroAdjustModal .hero-adjust-card{max-height:98vh;padding:10px;border-radius:18px}#heroAdjustModal .hero-adjust-head h3{font-size:19px}#heroAdjustModal .hero-adjust-stage-wrap{padding:6px}#heroAdjustModal .hero-adjust-foot{align-items:stretch}#heroAdjustModal .hero-adjust-instruction{width:100%;font-size:12px}}</style></head><body class="admin-body">
-<div id="loginScreen" class="admin-login"><div class="login-card"><img id="loginLogo" class="login-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><h1>Admin Login</h1><p>Secure access to The Ark Spa & Salon control panel</p><form id="loginForm" class="form" onsubmit="return window.arkAdminLogin(event)"><input id="email" type="email" placeholder="Admin Email" required><input id="password" type="password" placeholder="Password" required><button class="btn primary" id="loginSubmitBtn" type="submit">Login</button><div id="loginMsg" class="status hidden"></div></form><script>window.arkAdminLogin=async function(e){if(e){e.preventDefault();e.stopPropagation()}const emailEl=document.getElementById("email"),passwordEl=document.getElementById("password"),msg=document.getElementById("loginMsg");if(msg){msg.classList.add("hidden");msg.textContent=""}try{if(!window.auth)throw new Error("Admin login service is not available.");const email=String(emailEl&&emailEl.value||"").trim(),password=String(passwordEl&&passwordEl.value||"");if(!email||!password)throw new Error("Please enter your admin email and password.");await window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);await window.auth.signInWithEmailAndPassword(email,password)}catch(err){console.error("Admin login failed:",err);if(msg){msg.classList.remove("hidden");msg.textContent=err&&err.message?err.message:"Login failed. Please try again."}}return false};</script>
+<div id="loginScreen" class="admin-login"><div class="login-card"><img id="loginLogo" class="login-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><h1>Admin Login</h1><p>Secure access to The Ark Spa & Salon control panel</p><form id="loginForm" class="form" onsubmit="return window.arkAdminLogin(event)">
+<input id="email" type="email" placeholder="Admin Email" required>
+<input id="password" type="password" placeholder="Password" required>
+<button class="btn primary" id="loginSubmitBtn" type="submit">Login</button>
+<div id="loginMsg" class="status hidden"></div>
+</form>
+<script>
+window.arkAdminLogin=async function(e){
+  if(e){e.preventDefault();e.stopPropagation()}
+  const emailEl=document.getElementById('email');
+  const passwordEl=document.getElementById('password');
+  const btn=document.getElementById('loginSubmitBtn');
+  const msg=document.getElementById('loginMsg');
+  if(window.arkAdminLoginBusy)return false;
+  if(msg){msg.classList.add('hidden');msg.textContent=''}
+  try{
+    if(!window.arkAdminAuthReady)throw new Error('Admin login is still initializing. Please try again.');
+    const email=String(emailEl&&emailEl.value||'').trim();
+    const password=String(passwordEl&&passwordEl.value||'');
+    if(!email||!password)throw new Error('Please enter your admin email and password.');
+    window.arkAdminLoginBusy=true;
+    if(btn){btn.disabled=true;btn.textContent='Logging in…'}
+    await window.arkAdminAuthReady;
+    if(!window.auth)throw new Error('Admin login service is not available.');
+    await window.auth.signInWithEmailAndPassword(email,password);
+  }catch(err){
+    console.error('Admin login failed:',err);
+    window.arkAdminLoginBusy=false;
+    if(btn){btn.disabled=false;btn.textContent='Login'}
+    if(msg){
+      msg.classList.remove('hidden');
+      msg.textContent=err&&err.message?err.message:'Login failed. Please try again.'
+    }
+  }
+  return false;
+};
+</script>
 </div></div>
 <div id="dashboard" class="admin-shell hidden"><div class="admin-top"><a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a><button class="btn logout" id="logoutBtn">Logout</button></div>
 <div class="admin-nav"><button class="admin-tab active" data-tab="main">Main Controls</button><button class="admin-tab" data-tab="appointments">Appointments</button><button class="admin-tab" data-tab="recovery">Recovery</button></div>
@@ -624,40 +660,50 @@ if(!window.auth){
   loginMsg.textContent='Admin login service is not available. Please refresh the page.';
   loginMsg.classList.remove('hidden');
 }else{
-  window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e){
-    console.warn('Admin LOCAL persistence setup:',e);
-  });
-  window.auth.onAuthStateChanged(async function(user){
-    if(user){
-      loginScreen.classList.add('hidden');
-      dashboard.classList.remove('hidden');
-      resetAdminView();
-      try{
-        await startDashboard();
-      }catch(e){
-        console.error('Admin dashboard load failed for authenticated user:',e);
-        if(window.auth.currentUser){
-          dashboard.classList.remove('hidden');
-          loginScreen.classList.add('hidden');
-          if(loginMsg){
-            loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
-            loginMsg.classList.remove('hidden');
+  window.arkAdminLoginBusy=false;
+  window.arkAdminAuthReady=(async function(){
+    await window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    return true;
+  })();
+  window.arkAdminAuthReady.then(function(){
+    window.auth.onAuthStateChanged(async function(user){
+      if(user){
+        loginScreen.classList.add('hidden');
+        dashboard.classList.remove('hidden');
+        resetAdminView();
+        try{
+          await startDashboard();
+        }catch(e){
+          console.error('Admin dashboard load failed for authenticated user:',e);
+          if(window.auth.currentUser){
+            dashboard.classList.remove('hidden');
+            loginScreen.classList.add('hidden');
+            if(loginMsg){
+              loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
+              loginMsg.classList.remove('hidden');
+            }
           }
         }
+      }else{
+        dashboard.classList.add('hidden');
+        loginScreen.classList.remove('hidden');
+        resetAdminView();
+        loginScreen.scrollTop=0;
+        try{
+          const snap=await db.ref('siteContent/brand/logoUrl').once('value');
+          if(!window.auth.currentUser) loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
+        }catch(e){
+          if(!window.auth.currentUser) loginLogo.src=ARK_DEFAULT.brand.logoUrl;
+        }
       }
-    }else{
-      dashboard.classList.add('hidden');
-      loginScreen.classList.remove('hidden');
-      resetAdminView();
-      loginScreen.scrollTop=0;
-      try{
-        const snap=await db.ref('siteContent/brand/logoUrl').once('value');
-        if(!window.auth.currentUser) loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
-      }catch(e){
-        if(!window.auth.currentUser) loginLogo.src=ARK_DEFAULT.brand.logoUrl;
-      }
-    }
+    });
+  }).catch(function(err){
+    console.error('Admin auth initialization failed:',err);
+    loginScreen.classList.remove('hidden');
+    loginMsg.textContent='Secure login initialization failed. Please refresh the page.';
+    loginMsg.classList.remove('hidden');
   });
+}
 }</script><script>(function(){
   const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
   if(!login||!card||fields.some(x=>!x))return;
