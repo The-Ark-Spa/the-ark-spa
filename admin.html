@@ -252,7 +252,8 @@
 <div id="loginMsg" class="status hidden"></div>
 </form>
 <script>
-window.ARK_AUTH_API='/api/admin';
+window.ARK_AUTH_API='https://the-ark-admin-auth.bundela-ar143.workers.dev/api/admin';
+window.ARK_ADMIN_TOKEN_KEY='ark_admin_session_token';
 window.arkAdminLogin=async function(e){
   if(e){e.preventDefault();e.stopPropagation()}
   const emailEl=document.getElementById('email'),passwordEl=document.getElementById('password'),btn=document.getElementById('loginSubmitBtn'),msg=document.getElementById('loginMsg');
@@ -263,9 +264,10 @@ window.arkAdminLogin=async function(e){
   window.arkAdminLoginBusy=true;
   if(btn){btn.disabled=true;btn.textContent='Logging in…'}
   try{
-    const response=await fetch(window.ARK_AUTH_API+'/login',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password}),cache:'no-store'});
+    const response=await fetch(window.ARK_AUTH_API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password}),cache:'no-store'});
     let data=null;try{data=await response.json()}catch(_){}
-    if(!response.ok||!data||!data.ok)throw new Error(data&&data.error?data.error:'Login failed. Please check your ID and password.');
+    if(!response.ok||!data||!data.ok||!data.token)throw new Error(data&&data.error?data.error:'Login failed. Please check your ID and password.');
+    sessionStorage.setItem(window.ARK_ADMIN_TOKEN_KEY,data.token);
     window.arkAdminLoginBusy=false;
     if(btn){btn.disabled=false;btn.textContent='Login'}
     if(passwordEl)passwordEl.value='';
@@ -654,7 +656,7 @@ loginScreen.classList.add('hidden');
 dashboard.classList.add('hidden');
 window.arkAdminBoot=async function(){
   try{
-    const response=await fetch(window.ARK_AUTH_API+'/session',{method:'GET',credentials:'include',cache:'no-store'});
+    const response=await fetch(window.ARK_AUTH_API+'/session',{method:'GET',headers:{'Authorization':'Bearer '+(sessionStorage.getItem(window.ARK_ADMIN_TOKEN_KEY)||'')},cache:'no-store'});
     if(!response.ok)throw new Error('No active admin session.');
     const data=await response.json();
     if(!data||!data.ok)throw new Error('No active admin session.');
@@ -676,7 +678,7 @@ window.arkAdminBoot=async function(){
   }
 };
 window.arkAdminLogout=async function(){
-  try{await fetch(window.ARK_AUTH_API+'/logout',{method:'POST',credentials:'include',cache:'no-store'})}catch(_){}
+  try{await fetch(window.ARK_AUTH_API+'/logout',{method:'POST',headers:{'Authorization':'Bearer '+(sessionStorage.getItem(window.ARK_ADMIN_TOKEN_KEY)||'')},cache:'no-store'}); sessionStorage.removeItem(window.ARK_ADMIN_TOKEN_KEY)}catch(_){}
   window.location.href='index.html';
 };
 window.arkAdminBoot();
