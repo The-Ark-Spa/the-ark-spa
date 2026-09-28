@@ -30,10 +30,11 @@ async function createSession(env,email){
   return payload+'.'+sig;
 }
 async function readSession(request,env){
+  const bearer=(request.headers.get('Authorization')||'').replace(/^Bearer\s+/i,'').trim();
   const raw=request.headers.get('Cookie')||'';
   const match=raw.match(new RegExp('(?:^|;\\s*)'+COOKIE_NAME+'=([^;]+)'));
-  if(!match||!env.SESSION_SECRET)return null;
-  const token=match[1],parts=token.split('.');
+  if((!match&&!bearer)||!env.SESSION_SECRET)return null;
+  const token=bearer||(match&&match[1]),parts=token.split('.');
   if(parts.length!==2)return null;
   const expected=b64u(await hmac(env.SESSION_SECRET,parts[0]));
   if(!timingSafeEqual(expected,parts[1]))return null;
@@ -48,8 +49,9 @@ function json(data,status=200){
 }
 function cors(request,headers){
   const origin=request.headers.get('Origin');
-  if(origin)headers.set('Access-Control-Allow-Origin',origin);
-  headers.set('Access-Control-Allow-Credentials','true');
+  if(origin==='https://the-ark-spa.github.io')headers.set('Access-Control-Allow-Origin',origin);
+  headers.set('Access-Control-Allow-Methods','POST,GET,OPTIONS');
+  headers.set('Access-Control-Allow-Headers','Content-Type, Authorization');
   headers.set('Vary','Origin');
   return headers;
 }
@@ -63,8 +65,6 @@ export default {
     if(!url.pathname.startsWith('/api/admin/'))return new Response('Not Found',{status:404});
     if(request.method==='OPTIONS'){
       const h=cors(request,new Headers());
-      h.set('Access-Control-Allow-Methods','POST,GET,OPTIONS');
-      h.set('Access-Control-Allow-Headers','Content-Type');
       return new Response(null,{status:204,headers:h});
     }
     const headers=cors(request,new Headers());
@@ -81,7 +81,7 @@ export default {
         const token=await createSession(env,email);
         headers.set('Set-Cookie',cookie(token,SESSION_TTL));
         headers.set('cache-control','no-store');
-        return new Response(JSON.stringify({ok:true}),{status:200,headers});
+        return new Response(JSON.stringify({ok:true,token}),{status:200,headers});
       }catch(_){return json({ok:false,error:'Invalid login request.'},400)}
     }
 
