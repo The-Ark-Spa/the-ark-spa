@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin — The Ark Spa & Salon</title><link rel="stylesheet" href="style.css?v=admin-size-fix-20260923-v6"><link rel="preload" as="image" href="assets/ark-logo-reference.png"><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script><script src="firebase-config.js"></script><script src="app.js"></script><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin — The Ark Spa & Salon</title><link rel="stylesheet" href="style.css?v=admin-size-fix-20260923-v6"><link rel="preload" as="image" href="assets/ark-logo-reference.png"><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script><script src="firebase-config.js"></script><script src="app.js"></script><style>
 @media (max-width:760px){.admin-login{min-height:100svh;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden}.admin-login.keyboard-open{align-items:flex-start;padding-top:20px;overflow:auto}.admin-login .login-card{width:min(430px,100%);margin:0;transform:translateY(0);transition:transform .18s ease}.admin-login.keyboard-open .login-card{transform:translateY(var(--keyboard-shift,0px))}}
 </style><style id="gallery-library-ui">
 #mainPanel .admin-section-card:has(#galleryAdmin) .gallery-library-head{display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap}
@@ -246,38 +246,35 @@
 #heroAdjustModal .hero-adjust-instruction{color:var(--green);font-size:13px;font-weight:700}
 @media(max-width:760px){#heroAdjustModal{padding:8px}#heroAdjustModal .hero-adjust-card{max-height:98vh;padding:10px;border-radius:18px}#heroAdjustModal .hero-adjust-head h3{font-size:19px}#heroAdjustModal .hero-adjust-stage-wrap{padding:6px}#heroAdjustModal .hero-adjust-foot{align-items:stretch}#heroAdjustModal .hero-adjust-instruction{width:100%;font-size:12px}}</style></head><body class="admin-body">
 <div id="loginScreen" class="admin-login"><div class="login-card"><img id="loginLogo" class="login-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><h1>Admin Login</h1><p>Secure access to The Ark Spa & Salon control panel</p><form id="loginForm" class="form" onsubmit="return window.arkAdminLogin(event)">
-<input id="email" type="email" placeholder="Admin Email" required>
-<input id="password" type="password" placeholder="Password" required>
+<input id="email" type="email" placeholder="Admin ID / Email" autocomplete="username" required>
+<input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
 <button class="btn primary" id="loginSubmitBtn" type="submit">Login</button>
 <div id="loginMsg" class="status hidden"></div>
 </form>
 <script>
+window.ARK_AUTH_API='/api/admin';
 window.arkAdminLogin=async function(e){
   if(e){e.preventDefault();e.stopPropagation()}
-  const emailEl=document.getElementById('email');
-  const passwordEl=document.getElementById('password');
-  const btn=document.getElementById('loginSubmitBtn');
-  const msg=document.getElementById('loginMsg');
+  const emailEl=document.getElementById('email'),passwordEl=document.getElementById('password'),btn=document.getElementById('loginSubmitBtn'),msg=document.getElementById('loginMsg');
   if(window.arkAdminLoginBusy)return false;
   if(msg){msg.classList.add('hidden');msg.textContent=''}
+  const email=String(emailEl&&emailEl.value||'').trim(),password=String(passwordEl&&passwordEl.value||'');
+  if(!email||!password){if(msg){msg.classList.remove('hidden');msg.textContent='Please enter your admin ID and password.'}return false}
+  window.arkAdminLoginBusy=true;
+  if(btn){btn.disabled=true;btn.textContent='Logging in…'}
   try{
-    if(!window.arkAdminAuthReady)throw new Error('Admin login is still initializing. Please try again.');
-    const email=String(emailEl&&emailEl.value||'').trim();
-    const password=String(passwordEl&&passwordEl.value||'');
-    if(!email||!password)throw new Error('Please enter your admin email and password.');
-    window.arkAdminLoginBusy=true;
-    if(btn){btn.disabled=true;btn.textContent='Logging in…'}
-    await window.arkAdminAuthReady;
-    if(!window.auth)throw new Error('Admin login service is not available.');
-    await window.auth.signInWithEmailAndPassword(email,password);
-  }catch(err){
-    console.error('Admin login failed:',err);
+    const response=await fetch(window.ARK_AUTH_API+'/login',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password}),cache:'no-store'});
+    let data=null;try{data=await response.json()}catch(_){}
+    if(!response.ok||!data||!data.ok)throw new Error(data&&data.error?data.error:'Login failed. Please check your ID and password.');
     window.arkAdminLoginBusy=false;
     if(btn){btn.disabled=false;btn.textContent='Login'}
-    if(msg){
-      msg.classList.remove('hidden');
-      msg.textContent=err&&err.message?err.message:'Login failed. Please try again.'
-    }
+    if(passwordEl)passwordEl.value='';
+    await window.arkAdminBoot();
+  }catch(err){
+    console.error('Admin direct login failed:',err);
+    window.arkAdminLoginBusy=false;
+    if(btn){btn.disabled=false;btn.textContent='Login'}
+    if(msg){msg.classList.remove('hidden');msg.textContent=err&&err.message?err.message:'Login failed. Please try again.'}
   }
   return false;
 };
@@ -629,7 +626,7 @@ async function handleResetRates(){if(!confirm('Reset all rates to the approved A
 async function handleRestoreApproved(){if(!confirm('Restore the approved working Ark defaults? This will reset rates, offers, gallery, social links, contact and booking settings.'))return;if(!window.firebaseReady||!window.db){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Restore failed: Firebase is unavailable';return}try{await db.ref('siteContent').set({phone:ARK_DEFAULT.phone,whatsapp:ARK_DEFAULT.whatsapp,address:ARK_DEFAULT.address,brand:{...ARK_DEFAULT.brand},social:{...ARK_DEFAULT.social},footer:{...ARK_DEFAULT.footer},menu:JSON.parse(JSON.stringify(ARK_DEFAULT.menu)),gallery:JSON.parse(JSON.stringify(ARK_DEFAULT.gallery)),offers:{},bookingMode:'both',bookingEnabled:true,whatsappBookingEnabled:true,websiteBookingEnabled:true});await arkLoad();hydrate();recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='✓ Approved working Ark defaults restored everywhere.'}catch(e){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Restore failed: '+e.message}}
 async function hydrate(){renderHeroEditor();contactPhone.value=arkData.phone;contactWhatsapp.value=arkData.whatsapp;contactAddress.value=arkData.address;bookingMode.value=arkData.bookingMode;fillCategorySelect('pctCategory');fillCategorySelect('spCategory');fillPctValues();fillDurations();pctCategory.value='__all__';spCategory.value='__all__';fillOfferItems('__all__','pctItems');fillOfferItems('__all__','spItems');loadSavedOfferIntoForm('percentage');loadSavedOfferIntoForm('special');renderRates();renderOffers();try{await ensureGalleryLibraryMigration()}catch(e){console.warn('Gallery Library migration skipped:',e)}renderGalleryAdmin();renderLogo();renderSocialAdmin()}
 async function startDashboard(){await arkLoad();hydrate();}
-function bind(){const loginFormEl=document.getElementById('loginForm');const emailEl=document.getElementById('email');const passwordEl=document.getElementById('password');const loginMsgEl=document.getElementById('loginMsg');if(loginFormEl){loginFormEl.dataset.loginBound='1';}document.querySelectorAll('.section-toggle').forEach(b=>b.onclick=()=>{const card=b.closest('.admin-section-card');const panel=card&&card.closest('.admin-panel');if(!card||!panel||panel.hidden||panel.classList.contains('hidden'))return;const willOpen=!card.classList.contains('open');panel.querySelectorAll(':scope > .admin-section-card.open').forEach(other=>{if(other!==card)other.classList.remove('open')});card.classList.toggle('open',willOpen);});document.querySelectorAll('.admin-tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));['pctCategory','spCategory'].forEach(id=>$(id).addEventListener('change',()=>fillOfferItems($(id).value,id==='pctCategory'?'pctItems':'spItems')));logoutBtn.onclick=async()=>{try{await window.auth.signOut()}finally{window.location.href='index.html'}};uploadGallery.onclick=handleUploadGallery;bindGalleryLibrary();document.getElementById('heroImageFile').addEventListener('change',heroChooseImage);document.getElementById('heroAddImage').addEventListener('click',heroUploadImage);document.getElementById('heroResetAdjust').onclick=heroResetAdjust;document.getElementById('heroRemoveCustom').onclick=heroRemoveCustom;document.getElementById('heroSavePreview').onclick=heroSavePreview;document.getElementById('heroApplyLive').onclick=heroApplyLive;document.getElementById('heroDiscardPreview').onclick=heroDiscardPreview;document.getElementById('heroDesktopTab').onclick=()=>{heroEditorDevice='desktop';document.getElementById('heroDesktopTab').classList.add('active');document.getElementById('heroMobileTab').classList.remove('active');heroRenderEditor()};document.getElementById('heroMobileTab').onclick=()=>{heroEditorDevice='mobile';document.getElementById('heroMobileTab').classList.add('active');document.getElementById('heroDesktopTab').classList.remove('active');heroRenderEditor()};document.getElementById('heroAdjustModeSwitch').addEventListener('input',e=>heroModalSetMode(Number(e.target.value)===0?'text':Number(e.target.value)===2?'image':'normal'));document.getElementById('heroAdjustClose').onclick=heroCloseAdjust;document.getElementById('heroAdjustDone').onclick=heroCloseAdjust;document.getElementById('heroAdjustModal').addEventListener('click',e=>{if(e.target.id==='heroAdjustModal')heroCloseAdjust()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.getElementById('heroAdjustModal').classList.contains('open'))return;if(e.key==='Escape')heroCloseAdjust()});document.getElementById('heroPreviewTapArea').onclick=e=>{if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()};document.getElementById('heroPreviewTapArea').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}};bindGalleryImagePreview();document.getElementById('uploadLogo').addEventListener('click',e=>{e.preventDefault();handleUploadLogo()});document.getElementById('removeLogo').addEventListener('click',e=>{e.preventDefault();handleRemoveLogo()});saveContact.onclick=handleSaveContact;saveSocial.onclick=handleSaveSocial;saveBooking.onclick=handleSaveBooking;savePct.onclick=savePercentage;deactivatePct.onclick=()=>deactivateOfferType('percentage');saveSp.onclick=saveSpecial;deactivateSp.onclick=()=>deactivateOfferType('special');refreshAppointments.onclick=loadAppointments;exportAppointments.onclick=()=>appointmentExportModal.classList.remove('hidden');closeAppointmentExport.onclick=()=>appointmentExportModal.classList.add('hidden');downloadAppointmentsExcelBtn.onclick=()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsExcel()};downloadAppointmentsPdfBtn.onclick=()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsPdf()};backupBtn.onclick=downloadSiteBackup;resetRates.onclick=handleResetRates;resetOffers.onclick=handleResetOffers;resetGallery.onclick=handleResetGallery;restoreApproved.onclick=handleRestoreApproved}
+function bind(){const loginFormEl=document.getElementById('loginForm');const emailEl=document.getElementById('email');const passwordEl=document.getElementById('password');const loginMsgEl=document.getElementById('loginMsg');if(loginFormEl){loginFormEl.dataset.loginBound='1';}document.querySelectorAll('.section-toggle').forEach(b=>b.onclick=()=>{const card=b.closest('.admin-section-card');const panel=card&&card.closest('.admin-panel');if(!card||!panel||panel.hidden||panel.classList.contains('hidden'))return;const willOpen=!card.classList.contains('open');panel.querySelectorAll(':scope > .admin-section-card.open').forEach(other=>{if(other!==card)other.classList.remove('open')});card.classList.toggle('open',willOpen);});document.querySelectorAll('.admin-tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));['pctCategory','spCategory'].forEach(id=>$(id).addEventListener('change',()=>fillOfferItems($(id).value,id==='pctCategory'?'pctItems':'spItems')));logoutBtn.onclick=window.arkAdminLogout;uploadGallery.onclick=handleUploadGallery;bindGalleryLibrary();document.getElementById('heroImageFile').addEventListener('change',heroChooseImage);document.getElementById('heroAddImage').addEventListener('click',heroUploadImage);document.getElementById('heroResetAdjust').onclick=heroResetAdjust;document.getElementById('heroRemoveCustom').onclick=heroRemoveCustom;document.getElementById('heroSavePreview').onclick=heroSavePreview;document.getElementById('heroApplyLive').onclick=heroApplyLive;document.getElementById('heroDiscardPreview').onclick=heroDiscardPreview;document.getElementById('heroDesktopTab').onclick=()=>{heroEditorDevice='desktop';document.getElementById('heroDesktopTab').classList.add('active');document.getElementById('heroMobileTab').classList.remove('active');heroRenderEditor()};document.getElementById('heroMobileTab').onclick=()=>{heroEditorDevice='mobile';document.getElementById('heroMobileTab').classList.add('active');document.getElementById('heroDesktopTab').classList.remove('active');heroRenderEditor()};document.getElementById('heroAdjustModeSwitch').addEventListener('input',e=>heroModalSetMode(Number(e.target.value)===0?'text':Number(e.target.value)===2?'image':'normal'));document.getElementById('heroAdjustClose').onclick=heroCloseAdjust;document.getElementById('heroAdjustDone').onclick=heroCloseAdjust;document.getElementById('heroAdjustModal').addEventListener('click',e=>{if(e.target.id==='heroAdjustModal')heroCloseAdjust()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.getElementById('heroAdjustModal').classList.contains('open'))return;if(e.key==='Escape')heroCloseAdjust()});document.getElementById('heroPreviewTapArea').onclick=e=>{if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()};document.getElementById('heroPreviewTapArea').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}};bindGalleryImagePreview();document.getElementById('uploadLogo').addEventListener('click',e=>{e.preventDefault();handleUploadLogo()});document.getElementById('removeLogo').addEventListener('click',e=>{e.preventDefault();handleRemoveLogo()});saveContact.onclick=handleSaveContact;saveSocial.onclick=handleSaveSocial;saveBooking.onclick=handleSaveBooking;savePct.onclick=savePercentage;deactivatePct.onclick=()=>deactivateOfferType('percentage');saveSp.onclick=saveSpecial;deactivateSp.onclick=()=>deactivateOfferType('special');refreshAppointments.onclick=loadAppointments;exportAppointments.onclick=()=>appointmentExportModal.classList.remove('hidden');closeAppointmentExport.onclick=()=>appointmentExportModal.classList.add('hidden');downloadAppointmentsExcelBtn.onclick=()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsExcel()};downloadAppointmentsPdfBtn.onclick=()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsPdf()};backupBtn.onclick=downloadSiteBackup;resetRates.onclick=handleResetRates;resetOffers.onclick=handleResetOffers;resetGallery.onclick=handleResetGallery;restoreApproved.onclick=handleRestoreApproved}
 function resetAdminView(){document.querySelectorAll('.admin-section-card.open').forEach(c=>c.classList.remove('open'));showTab('main');window.scrollTo(0,0)}
 (function bindHeroSectionToggleDirect(){
   const heroCard=document.getElementById('heroEditor');
@@ -655,55 +652,35 @@ try{bind()}catch(error){console.error("Admin binding error:",error)}
 })();
 loginScreen.classList.add('hidden');
 dashboard.classList.add('hidden');
-if(!window.auth){
-  loginScreen.classList.remove('hidden');
-  loginMsg.textContent='Admin login service is not available. Please refresh the page.';
-  loginMsg.classList.remove('hidden');
-}else{
-  window.arkAdminLoginBusy=false;
-  window.arkAdminAuthReady=(async function(){
-    await window.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+window.arkAdminBoot=async function(){
+  try{
+    const response=await fetch(window.ARK_AUTH_API+'/session',{method:'GET',credentials:'include',cache:'no-store'});
+    if(!response.ok)throw new Error('No active admin session.');
+    const data=await response.json();
+    if(!data||!data.ok)throw new Error('No active admin session.');
+    loginScreen.classList.add('hidden');
+    dashboard.classList.remove('hidden');
+    resetAdminView();
+    await startDashboard();
     return true;
-  })();
-  window.arkAdminAuthReady.then(function(){
-    window.auth.onAuthStateChanged(async function(user){
-      if(user){
-        loginScreen.classList.add('hidden');
-        dashboard.classList.remove('hidden');
-        resetAdminView();
-        try{
-          await startDashboard();
-        }catch(e){
-          console.error('Admin dashboard load failed for authenticated user:',e);
-          if(window.auth.currentUser){
-            dashboard.classList.remove('hidden');
-            loginScreen.classList.add('hidden');
-            if(loginMsg){
-              loginMsg.textContent='Login is active. Some dashboard data could not be loaded: '+(e&&e.message?e.message:'Unknown error');
-              loginMsg.classList.remove('hidden');
-            }
-          }
-        }
-      }else{
-        dashboard.classList.add('hidden');
-        loginScreen.classList.remove('hidden');
-        resetAdminView();
-        loginScreen.scrollTop=0;
-        try{
-          const snap=await db.ref('siteContent/brand/logoUrl').once('value');
-          if(!window.auth.currentUser) loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
-        }catch(e){
-          if(!window.auth.currentUser) loginLogo.src=ARK_DEFAULT.brand.logoUrl;
-        }
-      }
-    });
-  }).catch(function(err){
-    console.error('Admin auth initialization failed:',err);
+  }catch(err){
+    dashboard.classList.add('hidden');
     loginScreen.classList.remove('hidden');
-    loginMsg.textContent='Secure login initialization failed. Please refresh the page.';
-    loginMsg.classList.remove('hidden');
-  });
-}</script><script>(function(){
+    resetAdminView();
+    loginScreen.scrollTop=0;
+    try{
+      const snap=await db.ref('siteContent/brand/logoUrl').once('value');
+      loginLogo.src=snap.val()||ARK_DEFAULT.brand.logoUrl;
+    }catch(_){loginLogo.src=ARK_DEFAULT.brand.logoUrl}
+    return false;
+  }
+};
+window.arkAdminLogout=async function(){
+  try{await fetch(window.ARK_AUTH_API+'/logout',{method:'POST',credentials:'include',cache:'no-store'})}catch(_){}
+  window.location.href='index.html';
+};
+window.arkAdminBoot();
+</script><script>(function(){
   const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
   if(!login||!card||fields.some(x=>!x))return;
   const vv=window.visualViewport;
