@@ -1,0 +1,9 @@
+name = "the-ark-admin-auth"
+main = "worker.js"
+compatibility_date = "2026-09-28"
+
+# Attach this Worker to the site's /api/admin/* route in Cloudflare.
+# Required secrets:
+#   ADMIN_EMAIL
+#   ADMIN_PASSWORD
+#   SESSION_SECRET
