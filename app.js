@@ -102,19 +102,9 @@
     };
   }
 
-  window.arkLoad=async function(){
-    if(!window.firebaseReady||!window.db) return window.arkData;
-    try{const s=await db.ref('siteContent').once('value'); window.arkData=merge(s.exists()?s.val():{});}
-    catch(e){console.warn('Site content unavailable; using safe defaults.',e);window.arkData=merge(window.arkData)}
-    return window.arkData;
-  };
-  window.arkSave=async function(patch){
-    if(!window.firebaseReady||!window.db) throw new Error('Firebase is unavailable');
-    await db.ref('siteContent').update(patch);
-    window.arkData=merge({...window.arkData,...patch});
-    return window.arkData;
-  };
-  window.escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  window.arkLoad=async function(){try{const s=await db.ref('siteContent').once('value');window.arkData=merge(s.exists()?s.val():{});}catch(e){console.warn('Site content unavailable; using safe defaults.',e);window.arkData=merge(window.arkData)}return window.arkData;};
+  window.arkSave=async function(patch){await db.ref('siteContent').update(patch);window.arkData=merge({...window.arkData,...patch});return window.arkData;};
+    window.escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   window.escapeAttr=s=>escapeHtml(s).replace(/`/g,'&#96;');
   window.formatMoney=n=>'₹'+Number(n||0).toLocaleString('en-IN',{useGrouping:false,maximumFractionDigits:2});
   window.parseRateParts=function(rate){
