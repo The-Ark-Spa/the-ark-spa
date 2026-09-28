@@ -335,37 +335,15 @@ function selectAllGallery(){gallerySelectedIds=new Set(galleryLibrary().images.m
 function gallerySelectPlacement(v){gallerySelectedPlacement=v||'';renderGalleryActions()}
 async function ensureGalleryLibraryMigration(){if(!window.firebaseReady||!window.db)return;const snap=await db.ref('siteContent/galleryLibrary').once('value');if(snap.exists()&&snap.val()&&Array.isArray(snap.val().images))return;const defaults=Array.isArray(arkData.galleryDefaults)&&arkData.galleryDefaults.length?arkData.galleryDefaults.slice():((arkData.gallery||[]).slice());await db.ref('siteContent').update({galleryDefaults:defaults,galleryLibrary:{version:1,maxImages:GALLERY_MAX,images:[]}});await arkLoad()}
 async function saveGalleryLibrary(images){await arkSave({galleryLibrary:{version:1,maxImages:GALLERY_MAX,images}})}
-const GALLERY_CLOUDINARY_CLOUD_NAME='bobobtno';
-const GALLERY_CLOUDINARY_UPLOAD_PRESET='the_ark_gallery';
-async function uploadGalleryFileToCloudinary(file,onProgress){
-  const endpoint='https://api.cloudinary.com/v1_1/'+encodeURIComponent(GALLERY_CLOUDINARY_CLOUD_NAME)+'/image/upload';
-  return await new Promise((resolve,reject)=>{
-    const xhr=new XMLHttpRequest();
-    let settled=false;
-    const finish=(fn,value)=>{if(settled)return;settled=true;fn(value)};
-    xhr.open('POST',endpoint,true);
-    xhr.upload.onprogress=e=>{if(e.lengthComputable&&typeof onProgress==='function')onProgress(e.loaded/e.total)};
-    xhr.onerror=()=>finish(reject,new Error('Cloudinary upload failed. Please check your internet connection.'));
-    xhr.onabort=()=>finish(reject,new Error('Cloudinary upload was cancelled.'));
-    xhr.onload=()=>{
-      if(xhr.status>=200&&xhr.status<300){
-        try{
-          const data=JSON.parse(xhr.responseText||'{}');
-          if(!data.secure_url)throw new Error('Cloudinary did not return an image URL.');
-          finish(resolve,data);
-        }catch(e){finish(reject,e)}
-      }else{
-        let msg='Cloudinary upload failed (HTTP '+xhr.status+').';
-        try{const data=JSON.parse(xhr.responseText||'{}');if(data.error&&data.error.message)msg+=' '+data.error.message}catch(e){}
-        finish(reject,new Error(msg));
-      }
-    };
-    const form=new FormData();
-    form.append('file',file);
-    form.append('upload_preset',GALLERY_CLOUDINARY_UPLOAD_PRESET);
-    form.append('folder','the-ark/gallery');
-    xhr.send(form);
-  })
+async function uploadGalleryFileToSupabase(file,onProgress){
+  const safeName=String(file.name||'image').replace(/[^a-zA-Z0-9._-]/g,'-');
+  const path='gallery/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'-'+safeName;
+  if(typeof onProgress==='function')onProgress(.05);
+  const {error}=await window.supabaseClient.storage.from('ark-gallery').upload(path,file,{cacheControl:'3600',upsert:false,contentType:file.type||'image/*'});
+  if(error)throw error;
+  if(typeof onProgress==='function')onProgress(1);
+  const {data}=window.supabaseClient.storage.from('ark-gallery').getPublicUrl(path);
+  return {secure_url:data.publicUrl,storage_path:path};
 }
 async function handleUploadGallery(){
   const fs=[...($('galleryFiles').files||[])];
@@ -381,13 +359,13 @@ async function handleUploadGallery(){
     for(let i=0;i<fs.length;i++){
       const f=fs[i];
       galleryShowMsg('Uploading '+(i+1)+'/'+fs.length+' — '+f.name+' 0%');
-      const data=await uploadGalleryFileToCloudinary(f,p=>galleryShowMsg('Uploading '+(i+1)+'/'+fs.length+' — '+f.name+' '+Math.round(p*100)+'%'));
+      const data=await uploadGalleryFileToSupabase(f,p=>galleryShowMsg('Uploading '+(i+1)+'/'+fs.length+' — '+f.name+' '+Math.round(p*100)+'%'));
       images.push({
         id:(crypto&&crypto.randomUUID)?crypto.randomUUID():('gallery-'+Date.now()+'-'+i),
         url:data.secure_url,
         name:f.name,
         storagePath:'',
-        cloudinaryPublicId:data.public_id||'',
+        storagePath:data.storage_path||'',
         placements:[]
       });
     }
@@ -400,7 +378,7 @@ async function handleUploadGallery(){
     galleryShowMsg('Upload failed: '+(e&&e.message?e.message:String(e)),'error');
   }
 }
-function galleryStorageRefForImage(image){if(!window.storage||!image)return null;try{if(image.storagePath&&String(image.storagePath).startsWith('site-media/gallery/'))return storage.ref().child(String(image.storagePath));if(image.url){const ref=storage.refFromURL(image.url);if(ref&&String(ref.fullPath||'').startsWith('site-media/gallery/'))return ref}}catch(e){console.warn('Gallery Storage reference unavailable:',e)}return null}
+function galleryStorageRefForImage(image){if(!window.storage||!image||!image.storagePath)return null;try{return storage.ref().child(String(image.storagePath))}catch(e){return null}}
 async function deleteGalleryStorageObjects(images){const failures=[];for(const image of images){const ref=galleryStorageRefForImage(image);if(!ref)continue;try{await ref.delete()}catch(e){if(e&&e.code==='storage/object-not-found')continue;failures.push({name:image.name||image.id,error:e})}}return failures}
 async function removeSelectedGalleryFromLibrary(){const selected=gallerySelectedImages();if(!selected.length)return;
 if(galleryRemoveTarget){
@@ -442,7 +420,7 @@ function heroOpenAdjust(){const m=$('heroAdjustModal');if(!m)return;heroModalSet
 function heroCloseAdjust(){const m=$('heroAdjustModal');if(!m)return;m.classList.remove('open');m.setAttribute('aria-hidden','true');document.body.style.overflow=''}
 function heroRenderAdjustModal(){const m=$('heroAdjustModal'),stage=$('heroAdjustStage');if(!m||!stage)return;const h=heroEnsureDraft(),mobile=heroEditorDevice==='mobile',cfg=h[mobile?'mobile':'desktop'];stage.classList.toggle('mobile',mobile);stage.innerHTML='<section class="hero" data-direct-edit="1"><div class="hero-content"><div class="hero-welcome" data-hero-direct="welcome">✦ WELCOME TO</div><h1 class="hero-title" data-hero-direct="title">THE ARK<br><em>SPA &amp; SALON</em></h1><div class="hero-tagline" data-hero-direct="tagline">Reducing Stress · Increasing Relaxation</div><p class="hero-desc" data-hero-direct="desc">Step into a world of peace, relaxation and rejuvenation.<br>Let our therapies heal your body, calm your mind and refresh your soul.</p><div class="hero-buttons" data-hero-direct="buttons"><a class="btn-call" href="#">☎ Contact Now</a><a class="btn-whatsapp" href="#">◉ WhatsApp Now</a></div></div></section>';const hero=stage.querySelector('.hero');const img=h.customImage&&h.imageUrl?h.imageUrl:ARK_DEFAULT.brand.heroImage;hero.style.backgroundImage='url("'+img.replace(/"/g,'\\\"')+'")';hero.style.backgroundPosition=Number(cfg.x||50)+'% '+Number(cfg.y||50)+'%';hero.style.backgroundSize=h.customImage?'auto '+Number(cfg.zoom||100)+'%':'100% 100%';const els=h.elements||ARK_DEFAULT.hero.elements;['welcome','title','tagline','desc','buttons'].forEach(k=>{const n=hero.querySelector('[data-hero-direct="'+k+'"]'),p=els[k][mobile?'mobile':'desktop'];n.style.setProperty('--ark-hero-x',p.x+'px');n.style.setProperty('--ark-hero-y',p.y+'px');n.style.setProperty('--ark-hero-scale',Number(p.scale||1))});heroDirectBind(stage,window.heroAdjustMode||'image')}
 function heroChooseImage(){const f=$('heroImageFile')?.files?.[0],info=$('heroImageInfo'),add=$('heroAddImage');if(!f){if(add)add.disabled=true;return}const img=new Image(),url=URL.createObjectURL(f);img.onload=()=>{try{const w=img.naturalWidth,h=img.naturalHeight,r=w/h;if(w<1672||h<941)throw new Error('Image rejected: '+w+' × '+h+' px. Minimum is 1672 × 941 px.');if(r<1.55||r>2.05)throw new Error('Image rejected: '+w+' × '+h+' px. Use a wide Hero image (about 1.55–2.05 aspect ratio).');info.innerHTML='<span class="hero-dim-ok">✓ Accepted: '+w+' × '+h+' px — click Add Image</span>';if(add)add.disabled=false}catch(e){info.innerHTML='<span class="hero-dim-bad">'+(e.message||e)+'</span>';if(add)add.disabled=true}finally{URL.revokeObjectURL(url)}};img.onerror=()=>{info.innerHTML='<span class="hero-dim-bad">✕ Could not read image dimensions.</span>';if(add)add.disabled=true;URL.revokeObjectURL(url)};img.src=url}
-async function heroUploadImage(){const f=$('heroImageFile')?.files?.[0];if(!f)return;const info=$('heroImageInfo');const img=new Image(),objectUrl=URL.createObjectURL(f);img.onload=async()=>{try{const w=img.naturalWidth,h=img.naturalHeight,r=w/h;if(w<1672||h<941)throw new Error('Image rejected: '+w+' × '+h+' px. Minimum is 1672 × 941 px.');if(r<1.55||r>2.05)throw new Error('Image rejected: '+w+' × '+h+' px. Use a wide Hero image (about 1.55–2.05 aspect ratio).');info.innerHTML='<span class="hero-dim-ok">✓ Accepted: '+w+' × '+h+' px</span>';const data=await uploadGalleryFileToCloudinary(f);if(!data?.secure_url)throw new Error('Cloudinary did not return an image URL.');heroEditorDraft=heroCurrentState();heroEditorDraft.imageUrl=data.secure_url;heroEditorDraft.customImage=true;heroEditorDraft.imageWidth=w;heroEditorDraft.imageHeight=h;heroEditorDraft.desktop.zoom=100;heroEditorDraft.mobile.zoom=100;heroRenderEditor();heroEditorMessage('✓ Image added to Preview. Adjust it, then Save to Preview → Apply Live.',true)}catch(e){info.innerHTML='<span class="hero-dim-bad">'+(e.message||e)+'</span>'}finally{URL.revokeObjectURL(objectUrl);$('heroImageFile').value=''}};img.onerror=()=>{info.innerHTML='<span class="hero-dim-bad">✕ Could not read image dimensions.</span>';URL.revokeObjectURL(objectUrl)};img.src=objectUrl}
+async function heroUploadImage(){const f=$('heroImageFile')?.files?.[0];if(!f)return;const info=$('heroImageInfo');const img=new Image(),objectUrl=URL.createObjectURL(f);img.onload=async()=>{try{const w=img.naturalWidth,h=img.naturalHeight,r=w/h;if(w<1672||h<941)throw new Error('Image rejected: '+w+' × '+h+' px. Minimum is 1672 × 941 px.');if(r<1.55||r>2.05)throw new Error('Image rejected: '+w+' × '+h+' px. Use a wide Hero image (about 1.55–2.05 aspect ratio).');info.innerHTML='<span class="hero-dim-ok">✓ Accepted: '+w+' × '+h+' px</span>';const data=await uploadGalleryFileToCloudinary(f);if(!data?.secure_url)throw new Error('Supabase Storage did not return an image URL.');heroEditorDraft=heroCurrentState();heroEditorDraft.imageUrl=data.secure_url;heroEditorDraft.customImage=true;heroEditorDraft.imageWidth=w;heroEditorDraft.imageHeight=h;heroEditorDraft.desktop.zoom=100;heroEditorDraft.mobile.zoom=100;heroRenderEditor();heroEditorMessage('✓ Image added to Preview. Adjust it, then Save to Preview → Apply Live.',true)}catch(e){info.innerHTML='<span class="hero-dim-bad">'+(e.message||e)+'</span>'}finally{URL.revokeObjectURL(objectUrl);$('heroImageFile').value=''}};img.onerror=()=>{info.innerHTML='<span class="hero-dim-bad">✕ Could not read image dimensions.</span>';URL.revokeObjectURL(objectUrl)};img.src=objectUrl}
 function heroResetAdjust(){heroEditorDraft=heroCurrentState();heroRenderEditor();heroEditorMessage('Preview adjustments reset to the current Live Hero.',true)}
 function heroRemoveCustom(){heroEditorDraft=heroDefaultState();heroRenderEditor();heroEditorMessage('Custom Hero removed from Preview. Click Apply Live to restore the permanent default.',true)}
 function heroSavePreview(){localStorage.setItem(HERO_DRAFT_KEY,JSON.stringify(heroEnsureDraft()));heroRenderEditor();heroEditorMessage('✓ Saved to Preview only. Public website has not changed.',true)}
@@ -450,7 +428,7 @@ function heroDiscardPreview(){localStorage.removeItem(HERO_DRAFT_KEY);heroEditor
 async function heroApplyLive(){try{const h=heroEnsureDraft();await arkSave({hero:h});heroEditorDraft=heroCurrentState();localStorage.removeItem(HERO_DRAFT_KEY);heroRenderEditor();heroEditorMessage('✓ Hero applied live. Public website will update automatically.',true)}catch(e){heroEditorMessage('Apply failed: '+(e.message||e))}}
 function renderHeroEditor(){try{const saved=localStorage.getItem(HERO_DRAFT_KEY);heroEditorDraft=saved?JSON.parse(saved):heroCurrentState();heroRenderEditor()}catch(e){heroEditorDraft=heroCurrentState();heroRenderEditor()}}
 function renderLogo(){const u=arkData.brand.logoUrl||ARK_DEFAULT.brand.logoUrl;['logoPreview','loginLogo','adminLogo'].forEach(id=>{if($(id))$(id).src=u});}
-async function handleUploadLogo(){const f=$('logoFile').files?.[0];if(!f)return;try{if(typeof uploadGalleryFileToCloudinary!=='function')throw new Error('Image upload service is not available. Please refresh and try again.');const data=await uploadGalleryFileToCloudinary(f);const u=data&&data.secure_url;if(!u)throw new Error('Cloudinary did not return an image URL.');await arkSave({brand:{...arkData.brand,logoUrl:u}});renderLogo();$('logoFile').value='';alert('✓ New logo saved everywhere.')}catch(e){console.error('Logo upload failed:',e);alert('Logo upload failed: '+(e&&e.message?e.message:String(e)))}}
+async function handleUploadLogo(){const f=$('logoFile').files?.[0];if(!f)return;try{const data=await uploadGalleryFileToSupabase(f);const u=data&&data.secure_url;if(!u)throw new Error('Supabase Storage did not return an image URL.');await arkSave({brand:{...arkData.brand,logoUrl:u}});renderLogo();$('logoFile').value='';alert('✓ New logo saved everywhere.')}catch(e){console.error('Logo upload failed:',e);alert('Logo upload failed: '+(e&&e.message?e.message:String(e)))}}
 async function handleRemoveLogo(){if(!confirm('Remove the custom logo and return to the permanent default Ark logo?'))return;try{await arkSave({brand:{...arkData.brand,logoUrl:''}});renderLogo();alert('✓ Default Ark logo restored everywhere.')}catch(e){alert('Could not restore default logo: '+e.message)}}
 function renderSocialAdmin(){const keys=['instagram','facebook','youtube','x'];socialAdmin.innerHTML=keys.map(k=>`<div class="social-row"><b>${socialLabel(k)}</b><input id="social_${k}" placeholder="Paste ${socialLabel(k)} link" value="${escapeAttr(arkData.social?.[k]||'')}"><span class="switch-status">${arkData.social?.[k]?'Active':'Not active — icon stays visible'}</span></div>`).join('')}
 async function handleSaveSocial(){const s={...(arkData.social||{})};const keys=['instagram','facebook','youtube','x'];for(const k of keys){const value=$("social_"+k).value.trim();if(value&&!validateSocialUrl(k,value)){socialMsg.classList.remove('hidden');socialMsg.textContent='Please enter a valid '+socialLabel(k)+' URL in the '+socialLabel(k)+' field.';$("social_"+k).focus();return}s[k]=value}delete s.whatsapp;try{await arkSave({social:s});renderSocialAdmin();document.querySelectorAll('[data-socials]').forEach(renderSocials);socialMsg.classList.remove('hidden');socialMsg.textContent='✓ Social links saved. Icons stay fixed; only their links change.'}catch(e){socialMsg.classList.remove('hidden');socialMsg.textContent='Save failed: '+e.message}}
