@@ -335,8 +335,8 @@ document.getElementById('bookingForm').addEventListener('submit',async e=>{
     finalPrice:formatMoney(total),totalAmount:total,status:'Pending',date:d.date,time:d.time,createdAt:new Date().toISOString()
   };
   try{
-    if(!window.firebaseReady||!window.db)throw new Error('Firebase unavailable');
-    await db.ref('appointments').push(data);
+    const {error:appointmentError}=await window.supabaseClient.from('appointments').insert({name:data.name,phone:data.phone,email:data.email,service:data.service,offer:data.offer,guests:Number(data.guests||1),date:data.date,time:data.time,final_price:data.finalPrice,total_amount:data.totalAmount,status:data.status,created_at:data.createdAt});
+    if(appointmentError)throw appointmentError;
     msgEl.textContent='✓ Appointment request received. We will confirm it with you.';
     e.target.reset();guestCountEl.value='1';selectedOfferName='';selectedServiceName='';
     renderGuestSelections();updateSubmitState();
