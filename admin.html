@@ -1,6 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin — The Ark Spa & Salon</title><link rel="stylesheet" href="style.css?v=admin-size-fix-20260923-v6"><link rel="preload" as="image" href="assets/ark-logo-reference.png"><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="supabase-config.js?v=20260929-1"></script><script src="admin-auth-config.js?v=20260929-1"></script><script src="app.js?v=20260929-1"></script><style>
-@media (max-width:760px){.admin-login{min-height:100svh;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden}.admin-login.keyboard-open{align-items:flex-start;padding-top:20px;overflow:auto}.admin-login .login-card{width:min(430px,100%);margin:0;transform:translateY(0);transition:transform .18s ease}.admin-login.keyboard-open .login-card{transform:translateY(var(--keyboard-shift,0px))}}
-</style><style id="gallery-library-ui">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin — The Ark Spa & Salon</title><link rel="stylesheet" href="style.css?v=admin-size-fix-20260923-v6"><link rel="preload" as="image" href="assets/ark-logo-reference.png"><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="supabase-config.js?v=20260929-1"></script><script src="admin-auth-config.js?v=20260929-1"></script><script src="app.js?v=20260929-1"></script><style id="gallery-library-ui">
 #mainPanel .admin-section-card:has(#galleryAdmin) .gallery-library-head{display:flex;justify-content:space-between;gap:14px;align-items:center;flex-wrap:wrap}
 #mainPanel .admin-section-card:has(#galleryAdmin) .gallery-library-head>div:first-child{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 #mainPanel .admin-section-card:has(#galleryAdmin) #galleryLibraryCount{font-size:15px;color:var(--green)}
@@ -245,7 +243,7 @@
 #heroAdjustModal .hero-adjust-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px}
 #heroAdjustModal .hero-adjust-instruction{color:var(--green);font-size:13px;font-weight:700}
 @media(max-width:760px){#heroAdjustModal{padding:8px}#heroAdjustModal .hero-adjust-card{max-height:98vh;padding:10px;border-radius:18px}#heroAdjustModal .hero-adjust-head h3{font-size:19px}#heroAdjustModal .hero-adjust-stage-wrap{padding:6px}#heroAdjustModal .hero-adjust-foot{align-items:stretch}#heroAdjustModal .hero-adjust-instruction{width:100%;font-size:12px}}</style></head><body class="admin-body">
-<div id="loginScreen" class="hidden" aria-hidden="true"><img id="loginLogo" src="assets/ark-logo-reference.png" alt=""></div><div id="dashboard" class="admin-shell hidden"><div class="admin-top"><a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a><button class="btn logout" id="logoutBtn">Logout</button></div>
+<div id="dashboard" class="admin-shell hidden"><div class="admin-top"><a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a><button class="btn logout" id="logoutBtn">Logout</button></div>
 <div class="admin-nav"><button class="admin-tab active" data-tab="main">Main Controls</button><button class="admin-tab" data-tab="appointments">Appointments</button><button class="admin-tab" data-tab="recovery">Recovery</button></div>
 <div id="mainPanel" class="admin-panel">
 <div class="admin-section-card"><button class="section-toggle"><span><h2>Rates</h2><span class="sub">Category → massage → actual rate</span></span><span class="chev">⌄</span></button><div class="admin-section-content"><div class="rate-layout"><div class="category-list" id="rateCategories"></div><div><div class="rate-items" id="rateItems"></div><div id="rateEditor" class="rate-editor hidden"></div></div></div><div id="rateMsg" class="status hidden" style="margin-top:12px"></div></div></div>
@@ -570,35 +568,8 @@ async function handleResetRates(){if(!confirm('Reset all rates to the approved A
 async function handleRestoreApproved(){if(!confirm('Restore the approved working Ark defaults? This will reset rates, offers, gallery, social links, contact and booking settings.'))return;if(!window.supabaseReady||!window.supabaseClient){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Restore failed: Supabase is unavailable';return}try{await arkSave({phone:ARK_DEFAULT.phone,whatsapp:ARK_DEFAULT.whatsapp,address:ARK_DEFAULT.address,brand:{...ARK_DEFAULT.brand},social:{...ARK_DEFAULT.social},footer:{...ARK_DEFAULT.footer},menu:JSON.parse(JSON.stringify(ARK_DEFAULT.menu)),gallery:JSON.parse(JSON.stringify(ARK_DEFAULT.gallery)),offers:[],bookingMode:'both',bookingEnabled:true,whatsappBookingEnabled:true,websiteBookingEnabled:true});await arkLoad();await hydrate();recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='✓ Approved working Ark defaults restored everywhere.'}catch(e){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Restore failed: '+e.message}}
 async function hydrate(){renderHeroEditor();contactPhone.value=arkData.phone;contactWhatsapp.value=arkData.whatsapp;contactAddress.value=arkData.address;bookingMode.value=arkData.bookingMode;fillCategorySelect('pctCategory');fillCategorySelect('spCategory');fillPctValues();fillDurations();pctCategory.value='__all__';spCategory.value='__all__';fillOfferItems('__all__','pctItems');fillOfferItems('__all__','spItems');loadSavedOfferIntoForm('percentage');loadSavedOfferIntoForm('special');renderRates();renderOffers();try{await ensureGalleryLibraryMigration()}catch(e){console.warn('Gallery Library migration skipped:',e)}renderGalleryAdmin();renderLogo();renderSocialAdmin()}
 async function startDashboard(){await arkLoad();hydrate();}
-function bind(){
-  const loginFormEl=document.getElementById('loginForm');
-  const emailEl=document.getElementById('email');
-  const passwordEl=document.getElementById('password');
-  const loginMsgEl=document.getElementById('loginMsg');
-  if(loginFormEl){
-    loginFormEl.addEventListener('submit',async e=>{
-      e.preventDefault();
-      e.stopPropagation();
-      if(loginMsgEl)loginMsgEl.classList.add('hidden');
-      try{
-        if(!window.adminAuth)throw new Error('Admin login service is not available. Please refresh the page.');
-        await window.adminAuth.setPersistence();
-        const result=await window.adminAuth.signInWithEmailAndPassword(emailEl.value.trim(),passwordEl.value);
-        if(!result||!result.user)throw new Error('Login completed without an admin user session.');
-        loginScreen.classList.add('hidden');
-        dashboard.classList.remove('hidden');
-        resetAdminView();
-        await startDashboard();
-      }catch(err){
-        if(loginMsgEl){
-          loginMsgEl.classList.remove('hidden');
-          loginMsgEl.textContent=err&&err.message?err.message:'Login failed. Please try again.';
-        }
-        console.error('Admin login failed:',err);
-      }
-    });
-  }
-}
+function bind(){}
+
 document.addEventListener('click',function(e){
   const toggle=e.target.closest('.section-toggle');
   if(!toggle)return;
@@ -640,7 +611,7 @@ wire('uploadLogo',handleUploadLogo); wire('removeLogo',handleRemoveLogo);
 const handlers={saveContact:handleSaveContact,saveSocial:handleSaveSocial,saveBooking:handleSaveBooking,savePct:savePercentage,deactivatePct:()=>deactivateOfferType('percentage'),saveSp:saveSpecial,deactivateSp:()=>deactivateOfferType('special'),refreshAppointments:loadAppointments,exportAppointments:()=>appointmentExportModal.classList.remove('hidden'),closeAppointmentExport:()=>appointmentExportModal.classList.add('hidden'),downloadAppointmentsExcelBtn:()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsExcel()},downloadAppointmentsPdfBtn:()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsPdf()},backupBtn:downloadSiteBackup,resetRates:handleResetRates,resetOffers:handleResetOffers,resetGallery:handleResetGallery,restoreApproved:handleRestoreApproved};
 Object.entries(handlers).forEach(([id,fn])=>wire(id,fn));
 function resetAdminView(){document.querySelectorAll('.admin-section-card.open').forEach(c=>c.classList.remove('open'));showTab('main');window.scrollTo(0,0)}
-try{bind()}catch(error){console.error("Admin binding error:",error)}window.adminAuth.setPersistence().catch(()=>{});window.adminAuth.onAuthStateChanged(user=>{if(user){loginScreen.classList.add('hidden');dashboard.classList.remove('hidden');resetAdminView();setTimeout(()=>{startDashboard().catch(error=>console.error('Admin dashboard initialization failed:',error))},0)}else{dashboard.classList.add('hidden');window.location.replace('admin-login.html')}});
+try{bind()}catch(error){console.error("Admin binding error:",error)}window.adminAuth.setPersistence().catch(()=>{});window.adminAuth.onAuthStateChanged(user=>{if(user){dashboard.classList.remove('hidden');resetAdminView();setTimeout(()=>{startDashboard().catch(error=>console.error('Admin dashboard initialization failed:',error))},0)}else{dashboard.classList.add('hidden');window.location.replace('index.html')}});
 (function bindHeroDirectControlsSafely(){
   function byId(id){return document.getElementById(id)}
   const modeSwitch=byId('heroAdjustModeSwitch'),close=byId('heroAdjustClose'),done=byId('heroAdjustDone'),modal=byId('heroAdjustModal'),preview=byId('heroPreviewTapArea'),desktop=byId('heroDesktopTab'),mobile=byId('heroMobileTab');
@@ -651,33 +622,6 @@ try{bind()}catch(error){console.error("Admin binding error:",error)}window.admin
   if(preview){preview.onclick=function(e){if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()};preview.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}}}
   if(desktop)desktop.onclick=function(e){e.preventDefault();heroEditorDevice='desktop';desktop.classList.add('active');if(mobile)mobile.classList.remove('active');heroRenderEditor()};
   if(mobile)mobile.onclick=function(e){e.preventDefault();heroEditorDevice='mobile';mobile.classList.add('active');if(desktop)desktop.classList.remove('active');heroRenderEditor()};
-})();
-</script><script>(function(){
-  const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
-  if(!login||!card||fields.some(x=>!x))return;
-  const vv=window.visualViewport;
-  let keyboard=false;
-  function reset(){keyboard=false;login.classList.remove('keyboard-open');login.style.removeProperty('--keyboard-shift');}
-  function sync(){
-    if(!vv)return;
-    const viewportBottom=vv.height+vv.offsetTop;
-    const cardRect=card.getBoundingClientRect();
-    const active=document.activeElement;
-    const focused=fields.includes(active);
-    const keyboardLikely=window.innerHeight-vv.height>100;
-    if(!keyboardLikely){reset();return;}
-    keyboard=true;login.classList.add('keyboard-open');
-    const safeBottom=viewportBottom-16;
-    const overlap=cardRect.bottom-safeBottom;
-    const shift=Math.min(0,Math.max(-220,-overlap-8));
-    login.style.setProperty('--keyboard-shift',shift+'px');
-    if(focused&&active.scrollIntoView){setTimeout(()=>active.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'}),0)}
-  }
-  fields.forEach(el=>el.addEventListener('focus',()=>setTimeout(sync,120)));
-  fields.forEach(el=>el.addEventListener('blur',()=>setTimeout(()=>{if(!fields.includes(document.activeElement))reset()},180)));
-  vv&&vv.addEventListener('resize',sync);vv&&vv.addEventListener('scroll',sync);
-  window.addEventListener('resize',()=>setTimeout(sync,80));
-  window.addEventListener('orientationchange',()=>setTimeout(reset,300));
 })();
 </script><script id="panel-isolation-final">
 (function(){
