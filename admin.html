@@ -635,7 +635,7 @@ wire('heroMobileTab',()=>{heroEditorDevice='mobile';$('heroMobileTab').classList
 const mode=$('heroAdjustModeSwitch'); if(mode)mode.addEventListener('input',e=>heroModalSetMode(Number(e.target.value)===0?'text':Number(e.target.value)===2?'image':'normal'));
 wire('heroAdjustClose',heroCloseAdjust); wire('heroAdjustDone',heroCloseAdjust);
 const adjust=$('heroAdjustModal'); if(adjust)adjust.addEventListener('click',e=>{if(e.target.id==='heroAdjustModal')heroCloseAdjust()});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('heroAdjustModal')?.classList.contains('open'))return;if(e.key==='Escape')heroCloseAdjust()});
+document.addEventListener('keydown',e=>{const modal=$('heroAdjustModal');if(e.key==='Escape'&&(!modal||!modal.classList.contains('open')))return;if(e.key==='Escape')heroCloseAdjust()});
 const tap=$('heroPreviewTapArea'); if(tap){tap.addEventListener('click',e=>{if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()});tap.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}})}
 bindGalleryImagePreview();
 wire('uploadLogo',handleUploadLogo); wire('removeLogo',handleRemoveLogo);
