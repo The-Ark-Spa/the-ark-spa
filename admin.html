@@ -255,7 +255,24 @@
 #recoveryPanel > .admin-section-card::before,
 #recoveryPanel > .admin-section-card::after{pointer-events:none!important}
 #heroAdjustModal[aria-hidden="true"]{pointer-events:none!important}
-</style></style></head><body class="admin-body">
+</style></style><style id="admin-tab-interaction-final">
+/* Final tab interaction layer: keep the top navigation above every dashboard visual layer. */
+.admin-shell .admin-nav{
+  position:relative!important;
+  z-index:999999!important;
+  pointer-events:auto!important;
+}
+.admin-shell .admin-nav .admin-tab{
+  position:relative!important;
+  z-index:1000000!important;
+  pointer-events:auto!important;
+  touch-action:manipulation!important;
+}
+.admin-shell .admin-nav .admin-tab::before,
+.admin-shell .admin-nav .admin-tab::after{
+  pointer-events:none!important;
+}
+</style></head><body class="admin-body">
 <div id="adminAuthGate" aria-hidden="true" style="display:none!important"></div>
 
 <div id="dashboard" class="admin-shell"><script id="admin-auth-bootstrap">
@@ -811,6 +828,28 @@ try{bind()}catch(error){console.error("Admin binding error:",error)}
     el.addEventListener('change',function(){
       try{ if(typeof window.fillOfferItems==='function')window.fillOfferItems(el.value,id==='pctCategory'?'pctItems':'spItems'); }catch(err){console.error('Admin select action failed:',id,err)}
     });
+  });
+})();
+</script><script id="admin-tab-interaction-final">
+(function(){
+  function activate(tab){
+    try{
+      if(typeof window.showTab==='function') window.showTab(tab);
+      else if(typeof showTab==='function') showTab(tab);
+    }catch(e){console.error('Admin tab action failed:',tab,e)}
+  }
+  document.querySelectorAll('.admin-nav .admin-tab').forEach(function(btn){
+    btn.onclick=function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      activate(btn.dataset.tab);
+    };
+    btn.addEventListener('pointerup',function(e){
+      if(e.pointerType==='touch'){
+        e.preventDefault();
+        activate(btn.dataset.tab);
+      }
+    },{passive:false});
   });
 })();
 </script></body></html>
