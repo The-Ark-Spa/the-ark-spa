@@ -243,7 +243,7 @@
 #heroAdjustModal .hero-adjust-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px}
 #heroAdjustModal .hero-adjust-instruction{color:var(--green);font-size:13px;font-weight:700}
 @media(max-width:760px){#heroAdjustModal{padding:8px}#heroAdjustModal .hero-adjust-card{max-height:98vh;padding:10px;border-radius:18px}#heroAdjustModal .hero-adjust-head h3{font-size:19px}#heroAdjustModal .hero-adjust-stage-wrap{padding:6px}#heroAdjustModal .hero-adjust-foot{align-items:stretch}#heroAdjustModal .hero-adjust-instruction{width:100%;font-size:12px}}</style></head><body class="admin-body">
-<div id="adminAuthGate" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#fbf6e9;color:#073f2d;font-family:Arial,sans-serif;font-weight:700;z-index:99999">Checking Admin session…</div>
+<div id="adminAuthGate" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#fbf6e9;color:#073f2d;font-family:Arial,sans-serif;font-weight:700;z-index:99999">Loading Admin Dashboard…</div>
 <div id="dashboard" class="admin-shell hidden"><div class="admin-top"><a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a><button class="btn logout" id="logoutBtn">Logout</button></div>
 <div class="admin-nav"><button class="admin-tab active" data-tab="main">Main Controls</button><button class="admin-tab" data-tab="appointments">Appointments</button><button class="admin-tab" data-tab="recovery">Recovery</button></div>
 <div id="mainPanel" class="admin-panel">
@@ -612,7 +612,33 @@ wire('uploadLogo',handleUploadLogo); wire('removeLogo',handleRemoveLogo);
 const handlers={saveContact:handleSaveContact,saveSocial:handleSaveSocial,saveBooking:handleSaveBooking,savePct:savePercentage,deactivatePct:()=>deactivateOfferType('percentage'),saveSp:saveSpecial,deactivateSp:()=>deactivateOfferType('special'),refreshAppointments:loadAppointments,exportAppointments:()=>appointmentExportModal.classList.remove('hidden'),closeAppointmentExport:()=>appointmentExportModal.classList.add('hidden'),downloadAppointmentsExcelBtn:()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsExcel()},downloadAppointmentsPdfBtn:()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsPdf()},backupBtn:downloadSiteBackup,resetRates:handleResetRates,resetOffers:handleResetOffers,resetGallery:handleResetGallery,restoreApproved:handleRestoreApproved};
 Object.entries(handlers).forEach(([id,fn])=>wire(id,fn));
 function resetAdminView(){document.querySelectorAll('.admin-section-card.open').forEach(c=>c.classList.remove('open'));showTab('main');window.scrollTo(0,0)}
-try{bind()}catch(error){console.error("Admin binding error:",error)}window.adminAuth.setPersistence().catch(()=>{});window.adminAuth.onAuthStateChanged(user=>{const gate=document.getElementById('adminAuthGate');if(user){if(gate)gate.remove();dashboard.classList.remove('hidden');resetAdminView();setTimeout(()=>{startDashboard().catch(error=>console.error('Admin dashboard initialization failed:',error))},0)}else{dashboard.classList.add('hidden');if(gate)gate.textContent='Returning to The Ark website…';window.location.replace('index.html')}});
+try{bind()}catch(error){console.error("Admin binding error:",error)}
+(function bootAdminDashboard(){
+  const gate=document.getElementById('adminAuthGate');
+  const dashboardEl=document.getElementById('dashboard');
+  const goHome=()=>{if(gate)gate.textContent='Returning to The Ark website…';window.location.replace('index.html')};
+  const start=async()=>{
+    try{
+      await window.adminAuth.setPersistence();
+      const admin=await Promise.race([
+        window.adminAuth.getCurrentAdmin(),
+        new Promise(resolve=>setTimeout(()=>resolve(null),8000))
+      ]);
+      if(!admin){goHome();return}
+      if(gate)gate.remove();
+      if(dashboardEl)dashboardEl.classList.remove('hidden');
+      resetAdminView();
+      await startDashboard();
+    }catch(error){
+      console.error('Admin dashboard authentication/initialization failed:',error);
+      goHome();
+    }
+  };
+  start();
+  window.adminAuth.onAuthStateChanged(user=>{
+    if(!user)goHome();
+  });
+})();
 (function bindHeroDirectControlsSafely(){
   function byId(id){return document.getElementById(id)}
   const modeSwitch=byId('heroAdjustModeSwitch'),close=byId('heroAdjustClose'),done=byId('heroAdjustDone'),modal=byId('heroAdjustModal'),preview=byId('heroPreviewTapArea'),desktop=byId('heroDesktopTab'),mobile=byId('heroMobileTab');
