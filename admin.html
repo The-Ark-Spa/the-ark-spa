@@ -333,7 +333,7 @@ function renderGalleryActions(){const count=gallerySelectedIds.size;const total=
 function toggleGallerySelection(id){galleryRemoveTarget='';if(gallerySelectedIds.has(id))gallerySelectedIds.delete(id);else gallerySelectedIds.add(id);renderGalleryAdmin()}
 function selectAllGallery(){gallerySelectedIds=new Set(galleryLibrary().images.map(x=>x.id));renderGalleryAdmin()}
 function gallerySelectPlacement(v){gallerySelectedPlacement=v||'';renderGalleryActions()}
-async function ensureGalleryLibraryMigration(){if(!window.supabaseReady||!window.db)return;const snap=await db.ref('siteContent/galleryLibrary').once('value');if(snap.exists()&&snap.val()&&Array.isArray(snap.val().images))return;const defaults=Array.isArray(arkData.galleryDefaults)&&arkData.galleryDefaults.length?arkData.galleryDefaults.slice():((arkData.gallery||[]).slice());await db.ref('siteContent').update({galleryDefaults:defaults,galleryLibrary:{version:1,maxImages:GALLERY_MAX,images:[]}});await arkLoad()}
+async function ensureGalleryLibraryMigration(){if(!window.supabaseReady||!window.supabaseClient)return;const {data,error}=await window.supabaseClient.from('site_content').select('data').eq('id',true).maybeSingle();if(error)throw error;const current=data?.data||{};if(current.galleryLibrary&&Array.isArray(current.galleryLibrary.images))return;const defaults=Array.isArray(arkData.galleryDefaults)&&arkData.galleryDefaults.length?arkData.galleryDefaults.slice():((arkData.gallery||[]).slice());await arkSave({galleryDefaults:defaults,galleryLibrary:{version:1,maxImages:GALLERY_MAX,images:[]}});await arkLoad()}
 async function saveGalleryLibrary(images){await arkSave({galleryLibrary:{version:1,maxImages:GALLERY_MAX,images}})}
 async function uploadGalleryFileToSupabase(file,onProgress){
   const safeName=String(file.name||'image').replace(/[^a-zA-Z0-9._-]/g,'-');
@@ -378,8 +378,7 @@ async function handleUploadGallery(){
     galleryShowMsg('Upload failed: '+(e&&e.message?e.message:String(e)),'error');
   }
 }
-function galleryStorageRefForImage(image){if(!window.storage||!image||!image.storagePath)return null;try{return storage.ref().child(String(image.storagePath))}catch(e){return null}}
-async function deleteGalleryStorageObjects(images){const failures=[];for(const image of images){const ref=galleryStorageRefForImage(image);if(!ref)continue;try{await ref.delete()}catch(e){if(e&&e.code==='storage/object-not-found')continue;failures.push({name:image.name||image.id,error:e})}}return failures}
+async function deleteGalleryStorageObjects(images){const failures=[];const paths=images.map(image=>image&&image.storagePath?String(image.storagePath):'').filter(Boolean);if(!paths.length)return failures;try{const {error}=await window.supabaseClient.storage.from('ark-gallery').remove(paths);if(error)throw error}catch(e){for(const image of images){if(!image||!image.storagePath)continue;try{const {error}=await window.supabaseClient.storage.from('ark-gallery').remove([String(image.storagePath)]);if(error)throw error}catch(err){failures.push({name:image.name||image.id,error:err})}}}return failures}
 async function removeSelectedGalleryFromLibrary(){const selected=gallerySelectedImages();if(!selected.length)return;
 if(galleryRemoveTarget){
   const p=galleryRemoveTarget;
