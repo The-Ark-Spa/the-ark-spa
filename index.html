@@ -238,7 +238,7 @@ function renderHomeOffers(){const offers=getActiveOffers();const specials=offers
   if(!modal||!form||!email||!password||!button||!msg)return;
   window.openAdminLogin=async function(){
     msg.textContent='';button.disabled=false;button.textContent='Login to Admin';modal.classList.remove('hidden');document.body.style.overflow='hidden';
-    try{const user=await window.adminAuth.getCurrentAdmin();if(user){window.location.replace('admin.html');return}}catch(e){}
+    try{const user=await window.adminAuth.getCurrentAdmin();if(user){window.location.replace('admin.html?v=20260929-auth-final');return}}catch(e){}
     setTimeout(()=>email.focus(),80);
   };
   window.closeAdminLogin=function(){modal.classList.add('hidden');document.body.style.removeProperty('overflow');msg.textContent='';password.value=''};
