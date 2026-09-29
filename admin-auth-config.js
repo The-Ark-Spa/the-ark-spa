@@ -83,39 +83,32 @@
     onAuthStateChanged(cb){
       const client=getClient();
       let active=true;
-      let lastUserId='';
+      let lastUserId=null;
 
-      const deliver=async user=>{
+      const deliver=(user)=>{
         if(!active)return;
-        if(!user){lastUserId='';cb(null);return;}
-        const incomingId=String(user.id||'');
-        if(lastUserId===incomingId)return;
-        try{
-          const verified=await getVerifiedUser();
-          if(!active)return;
-          if(!verified){lastUserId='';cb(null);return;}
-          if(!isAdminUser(verified)){
-            lastUserId='';
-            try{await client.auth.signOut({scope:'local'});}catch(e){}
-            if(active)cb(null);
-            return;
+        if(!user){
+          if(lastUserId!==null){
+            lastUserId=null;
+            cb(null);
           }
-          lastUserId=String(verified.id||'');
-          cb(verified);
-        }catch(e){
-          console.warn('Admin identity verification deferred:',e);
-          if(active&&lastUserId==='')cb(null);
+          return;
         }
+        const userId=String(user.id||'');
+        if(userId!==ADMIN_USER_ID){
+          lastUserId=null;
+          cb(null);
+          setTimeout(()=>client.auth.signOut({scope:'local'}).catch(()=>{}),0);
+          return;
+        }
+        if(lastUserId===userId)return;
+        lastUserId=userId;
+        cb(user);
       };
 
       const {data}=client.auth.onAuthStateChange((_event,session)=>{
         setTimeout(()=>deliver(session&&session.user?session.user:null),0);
       });
-
-      client.auth.getSession().then(({data:sessionData,error})=>{
-        if(error){console.warn('Supabase session check failed:',error);return;}
-        setTimeout(()=>deliver(sessionData&&sessionData.session?sessionData.session.user:null),0);
-      }).catch(error=>console.warn('Supabase session check failed:',error));
 
       return ()=>{
         active=false;
