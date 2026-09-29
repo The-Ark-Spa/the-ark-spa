@@ -646,7 +646,7 @@ document.addEventListener('click',function(e){
   panel.querySelectorAll(':scope > .admin-section-card.open').forEach(other=>{if(other!==card)other.classList.remove('open')});
   card.classList.toggle('open',willOpen);
 },true);
-document.querySelectorAll('.admin-tab').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
+
 const wire=(id,handler)=>{const el=$(id);if(!el||typeof handler!=='function')return false;if(el.dataset.arkWired==='1')return true;el.dataset.arkWired='1';el.addEventListener('click',e=>{e.preventDefault();handler(e);});return true};
 const wireChange=(id,handler)=>{const el=$(id);if(!el||typeof handler!=='function')return false;if(el.dataset.arkWiredChange==='1')return true;el.dataset.arkWiredChange='1';el.addEventListener('change',handler);return true};
 const wireNamed=(id,name)=>{const fn=window[name];return wire(id,typeof fn==='function'?fn:null)};
@@ -692,48 +692,6 @@ try{bind()}catch(error){console.error("Admin binding error:",error)}
   if(preview){preview.onclick=function(e){if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()};preview.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}}}
   if(desktop)desktop.onclick=function(e){e.preventDefault();heroEditorDevice='desktop';desktop.classList.add('active');if(mobile)mobile.classList.remove('active');heroRenderEditor()};
   if(mobile)mobile.onclick=function(e){e.preventDefault();heroEditorDevice='mobile';mobile.classList.add('active');if(desktop)desktop.classList.remove('active');heroRenderEditor()};
-})();
-</script><script id="panel-isolation-final">
-(function(){
-  const panelFor={
-    'Rates':'mainPanel',
-    'Offers':'mainPanel',
-    'Gallery':'mainPanel',
-    'Hero Section':'mainPanel',
-    'Logo':'mainPanel',
-    'Contact':'mainPanel',
-    'Social Media':'mainPanel',
-    'Booking Mode':'appointmentsPanel',
-    'Appointments':'appointmentsPanel',
-    'Recovery & Reset':'recoveryPanel'
-  };
-  function normalizePanels(){
-    const panels={
-      main:document.getElementById('mainPanel'),
-      appointments:document.getElementById('appointmentsPanel'),
-      recovery:document.getElementById('recoveryPanel')
-    };
-    if(!panels.main||!panels.appointments||!panels.recovery)return;
-    document.querySelectorAll('.admin-section-card').forEach(card=>{
-      const title=((card.querySelector(':scope > .section-toggle h2')||{}).textContent||'').trim();
-      const targetId=panelFor[title];
-      const target=targetId&&document.getElementById(targetId);
-      if(target && card.parentElement!==target) target.appendChild(card);
-    });
-  }
-  function isolate(){
-    normalizePanels();
-    const selected=(document.querySelector('.admin-tab.active')||{}).dataset.tab||'main';
-    showTab(selected);
-  }
-  document.addEventListener('click',function(e){
-    const btn=e.target.closest('.admin-tab');
-    if(!btn)return;
-    e.preventDefault();
-    normalizePanels();
-    showTab(btn.dataset.tab);
-  },true);
-  isolate();
 })();
 </script><div id="heroAdjustModal" aria-hidden="true">
   <div class="hero-adjust-card" role="dialog" aria-modal="true" aria-labelledby="heroAdjustTitle">
@@ -830,26 +788,34 @@ try{bind()}catch(error){console.error("Admin binding error:",error)}
     });
   });
 })();
-</script><script id="admin-tab-interaction-final">
+</script><script id="admin-tab-dispatch-clean">
 (function(){
-  function activate(tab){
+  function dispatchAdminTab(e){
+    const btn=e.target.closest('.admin-nav .admin-tab');
+    if(!btn)return;
+    const tab=btn.getAttribute('data-tab');
+    if(!tab)return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
     try{
-      if(typeof window.showTab==='function') window.showTab(tab);
-      else if(typeof showTab==='function') showTab(tab);
-    }catch(e){console.error('Admin tab action failed:',tab,e)}
+      if(typeof showTab==='function') showTab(tab);
+      else console.error('Admin tab dispatcher: showTab is unavailable');
+    }catch(error){
+      console.error('Admin tab dispatcher failed:',tab,error);
+    }
   }
-  document.querySelectorAll('.admin-nav .admin-tab').forEach(function(btn){
-    btn.onclick=function(e){
-      e.preventDefault();
-      e.stopPropagation();
-      activate(btn.dataset.tab);
-    };
-    btn.addEventListener('pointerup',function(e){
-      if(e.pointerType==='touch'){
-        e.preventDefault();
-        activate(btn.dataset.tab);
-      }
-    },{passive:false});
-  });
+  document.addEventListener('click',dispatchAdminTab,true);
+  document.addEventListener('touchend',function(e){
+    const btn=e.target.closest('.admin-nav .admin-tab');
+    if(!btn)return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    try{
+      if(typeof showTab==='function') showTab(btn.getAttribute('data-tab'));
+      else console.error('Admin tab dispatcher: showTab is unavailable');
+    }catch(error){
+      console.error('Admin tab touch dispatcher failed:',error);
+    }
+  },{capture:true,passive:false});
 })();
 </script></body></html>
