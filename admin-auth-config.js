@@ -85,22 +85,19 @@
       let active=true;
       let lastUserId=null;
       let initialized=false;
+      let initialProbeStarted=false;
 
       const deliver=(event,session)=>{
         if(!active)return;
         const user=session&&session.user?session.user:null;
 
-        // A refresh can emit intermediate auth events while the persisted
-        // session is being restored. Only an explicit SIGNED_OUT event may
-        // clear an already-authorized admin session.
         if(!user){
           if(event==='SIGNED_OUT'){
             lastUserId=null;
             initialized=true;
             cb(null);
-          }else if(!initialized){
-            initialized=true;
-            cb(null);
+          }else if(initialized){
+            return;
           }
           return;
         }
@@ -120,9 +117,33 @@
         cb(user);
       };
 
+      const probeInitialSession=()=>{
+        if(initialProbeStarted||initialized)return;
+        initialProbeStarted=true;
+        client.auth.getSession().then(result=>{
+          if(!active||initialized)return;
+          const session=result&&result.data?result.data.session:null;
+          deliver('INITIAL_SESSION_PROBE',session);
+          if(!session){
+            initialized=true;
+            cb(null);
+          }
+        }).catch(()=>{
+          if(!active||initialized)return;
+          initialized=true;
+          cb(null);
+        });
+      };
+
       const {data}=client.auth.onAuthStateChange((event,session)=>{
+        if(event==='INITIAL_SESSION'&&!session){
+          setTimeout(probeInitialSession,0);
+          return;
+        }
         setTimeout(()=>deliver(event,session),0);
       });
+
+      setTimeout(probeInitialSession,0);
 
       return ()=>{
         active=false;
