@@ -325,7 +325,7 @@
 let currentRateCategory='Full Body Massage', currentRateName='';
 const categories=[...new Set(ARK_DEFAULT.menu.map(x=>x.category))];
 const $=id=>document.getElementById(id);
-function showTab(tab){
+window.showTab=function showTab(tab){
   const allowed=['main','appointments','recovery'];
   if(!allowed.includes(tab)) tab='main';
   const panelMap={
