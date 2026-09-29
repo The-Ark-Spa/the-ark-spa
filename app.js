@@ -222,7 +222,7 @@
   window.initSite=async function(){
     await arkLoad();
     applyArkSiteData();
-    if(window.supabaseReady&&window.db){
+    if(window.supabaseReady&&window.supabaseClient){
       if(siteContentListener){window.supabaseClient.removeChannel(siteContentListener);siteContentListener=null;}
       siteContentListener=window.supabaseClient.channel('ark-live-site-content').on('postgres_changes',{event:'*',schema:'public',table:'site_content'},payload=>{
         const next=payload.new&&payload.new.data;
