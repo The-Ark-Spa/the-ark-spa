@@ -222,7 +222,7 @@
   window.initSite=async function(){
     await arkLoad();
     applyArkSiteData();
-    if(window.firebaseReady&&window.db){
+    if(window.supabaseReady&&window.db){
       if(siteContentListener)db.ref('siteContent').off('value',siteContentListener);
       siteContentListener=snap=>{
         if(!snap.exists())return;
