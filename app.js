@@ -223,14 +223,14 @@
     await arkLoad();
     applyArkSiteData();
     if(window.supabaseReady&&window.db){
-      if(siteContentListener)db.ref('siteContent').off('value',siteContentListener);
-      siteContentListener=snap=>{
-        if(!snap.exists())return;
-        window.arkData=merge(snap.val());
+      if(siteContentListener){window.supabaseClient.removeChannel(siteContentListener);siteContentListener=null;}
+      siteContentListener=window.supabaseClient.channel('ark-live-site-content').on('postgres_changes',{event:'*',schema:'public',table:'site_content'},payload=>{
+        const next=payload.new&&payload.new.data;
+        if(!next)return;
+        window.arkData=merge(next);
         applyArkSiteData();
         window.dispatchEvent(new CustomEvent('arkSiteDataUpdated',{detail:window.arkData}));
-      };
-      db.ref('siteContent').on('value',siteContentListener,err=>console.warn('Live site settings sync unavailable:',err));
+      }).subscribe(status=>{if(status==='CHANNEL_ERROR')console.warn('Live site settings sync unavailable.');});
     }
   };
   window.toggleMobileNav=function(){document.getElementById('mobileDrawer')?.classList.toggle('show')};
