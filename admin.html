@@ -308,7 +308,7 @@
   }
 })();
 </script><div class="admin-top"><a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a><button class="btn logout" id="logoutBtn">Logout</button></div>
-<div class="admin-nav"><button class="admin-tab active" data-tab="main">Main Controls</button><button class="admin-tab" data-tab="appointments">Appointments</button><button class="admin-tab" data-tab="recovery">Recovery</button></div>
+<div class="admin-nav"><button type="button" class="admin-tab active" data-tab="main" onclick="showTab('main')">Main Controls</button><button type="button" class="admin-tab" data-tab="appointments" onclick="showTab('appointments')">Appointments</button><button type="button" class="admin-tab" data-tab="recovery" onclick="showTab('recovery')">Recovery</button></div>
 <div id="mainPanel" class="admin-panel">
 <div class="admin-section-card"><button class="section-toggle"><span><h2>Rates</h2><span class="sub">Category → massage → actual rate</span></span><span class="chev">⌄</span></button><div class="admin-section-content"><div class="rate-layout"><div class="category-list" id="rateCategories"></div><div><div class="rate-items" id="rateItems"></div><div id="rateEditor" class="rate-editor hidden"></div></div></div><div id="rateMsg" class="status hidden" style="margin-top:12px"></div></div></div>
 <div class="admin-section-card"><button class="section-toggle"><span><h2>Offers</h2><span class="sub">Discount / Special Offer</span></span><span class="chev">⌄</span></button><div class="admin-section-content"><div class="offer-builder"><div class="offer-column"><div class="offer-type-card"><h3>Discount</h3><p class="admin-note">Select where the discount applies and choose a ready-made percentage. Save first, then Apply to make it live.</p><div class="form"><label>Category / Massage Selection</label><select id="pctCategory"></select><select id="pctItems" multiple size="6" aria-label="Percentage discount massage selection"></select><label>Discount</label><select id="pctValue"></select><div class="admin-actions"><button class="btn primary" id="savePct">Save</button><button class="btn danger" id="deactivatePct">Deactivate</button></div><div id="pctMsg" class="status hidden"></div></div></div><div class="discount-dashboard-art" aria-hidden="true"><div class="art-scene"><span class="art-ring ring-a"></span><span class="art-ring ring-b"></span><span class="art-glow"></span><span class="art-dot dot-a"></span><span class="art-dot dot-b"></span><span class="art-dot dot-c"></span><span class="art-sweep"></span></div></div></div><div class="offer-type-card"><h3>Special Offer</h3><p class="admin-note">Optional name, fixed price, ready-made duration, then choose the category or massage(s).</p><div class="form"><label>Offer Name <span class="admin-note">(optional)</span></label><input id="spTitle" placeholder="e.g. Festive Special"><label>Price</label><input id="spRate" type="number" min="0" step="1" placeholder="Special price"><label>Duration</label><select id="spDuration"></select><label>Category / Massage Selection</label><select id="spCategory"></select><select id="spItems" multiple size="6" aria-label="Special offer massage selection"></select><div class="admin-actions"><button class="btn primary" id="saveSp">Save</button><button class="btn danger" id="deactivateSp">Deactivate</button></div><div id="spMsg" class="status hidden"></div></div></div></div><div class="full"><h3 style="color:var(--green);font-family:Georgia,serif">Saved Offers</h3><div id="offerList" class="offer-list"></div></div></div></div></div>
@@ -787,35 +787,5 @@ try{bind()}catch(error){console.error("Admin binding error:",error)}
       try{ if(typeof window.fillOfferItems==='function')window.fillOfferItems(el.value,id==='pctCategory'?'pctItems':'spItems'); }catch(err){console.error('Admin select action failed:',id,err)}
     });
   });
-})();
-</script><script id="admin-tab-dispatch-clean">
-(function(){
-  function dispatchAdminTab(e){
-    const btn=e.target.closest('.admin-nav .admin-tab');
-    if(!btn)return;
-    const tab=btn.getAttribute('data-tab');
-    if(!tab)return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    try{
-      if(typeof showTab==='function') showTab(tab);
-      else console.error('Admin tab dispatcher: showTab is unavailable');
-    }catch(error){
-      console.error('Admin tab dispatcher failed:',tab,error);
-    }
-  }
-  document.addEventListener('click',dispatchAdminTab,true);
-  document.addEventListener('touchend',function(e){
-    const btn=e.target.closest('.admin-nav .admin-tab');
-    if(!btn)return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    try{
-      if(typeof showTab==='function') showTab(btn.getAttribute('data-tab'));
-      else console.error('Admin tab dispatcher: showTab is unavailable');
-    }catch(error){
-      console.error('Admin tab touch dispatcher failed:',error);
-    }
-  },{capture:true,passive:false});
 })();
 </script></body></html>
