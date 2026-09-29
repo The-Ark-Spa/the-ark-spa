@@ -600,35 +600,6 @@ function bind(){
       }
     });
   }
-  document.querySelectorAll('.admin-tab').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
-  const wire=(id,handler)=>{
-    const el=$(id);
-    if(el)el.addEventListener('click',e=>{e.preventDefault();handler(e);});
-  };
-  const wireChange=(id,handler)=>{
-    const el=$(id);
-    if(el)el.addEventListener('change',handler);
-  };
-  wireChange('pctCategory',()=>fillOfferItems($('pctCategory').value,'pctItems'));
-  wireChange('spCategory',()=>fillOfferItems($('spCategory').value,'spItems'));
-  wire('logoutBtn',async()=>{try{await window.adminAuth.signOut()}finally{window.location.href='index.html'}});
-  wire('uploadGallery',handleUploadGallery);
-  try{bindGalleryLibrary()}catch(error){console.error('Gallery library binding error:',error)}
-  const heroFile=$('heroImageFile'); if(heroFile)heroFile.addEventListener('change',heroChooseImage);
-  wire('heroAddImage',heroUploadImage); wire('heroResetAdjust',heroResetAdjust); wire('heroRemoveCustom',heroRemoveCustom);
-  wire('heroSavePreview',heroSavePreview); wire('heroApplyLive',heroApplyLive); wire('heroDiscardPreview',heroDiscardPreview);
-  wire('heroDesktopTab',()=>{heroEditorDevice='desktop';$('heroDesktopTab').classList.add('active');$('heroMobileTab').classList.remove('active');heroRenderEditor()});
-  wire('heroMobileTab',()=>{heroEditorDevice='mobile';$('heroMobileTab').classList.add('active');$('heroDesktopTab').classList.remove('active');heroRenderEditor()});
-  const mode=$('heroAdjustModeSwitch'); if(mode)mode.addEventListener('input',e=>heroModalSetMode(Number(e.target.value)===0?'text':Number(e.target.value)===2?'image':'normal'));
-  wire('heroAdjustClose',heroCloseAdjust); wire('heroAdjustDone',heroCloseAdjust);
-  const adjust=$('heroAdjustModal'); if(adjust)adjust.addEventListener('click',e=>{if(e.target.id==='heroAdjustModal')heroCloseAdjust()});
-  document.addEventListener('keydown',e=>{const modal=$('heroAdjustModal');if(e.key==='Escape'&&(!modal||!modal.classList.contains('open')))return;if(e.key==='Escape')heroCloseAdjust()});
-  const tap=$('heroPreviewTapArea'); if(tap){tap.addEventListener('click',e=>{if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()});tap.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}})}
-  try{bindGalleryImagePreview()}catch(error){console.error('Gallery image preview binding error:',error)}
-  wire('uploadLogo',handleUploadLogo); wire('removeLogo',handleRemoveLogo);
-  const handlers={saveContact:handleSaveContact,saveSocial:handleSaveSocial,saveBooking:handleSaveBooking,savePct:savePercentage,deactivatePct:()=>deactivateOfferType('percentage'),saveSp:saveSpecial,deactivateSp:()=>deactivateOfferType('special'),refreshAppointments:loadAppointments,exportAppointments:()=>appointmentExportModal.classList.remove('hidden'),closeAppointmentExport:()=>appointmentExportModal.classList.add('hidden'),downloadAppointmentsExcelBtn:()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsExcel()},downloadAppointmentsPdfBtn:()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsPdf()},backupBtn:downloadSiteBackup,resetRates:handleResetRates,resetOffers:handleResetOffers,resetGallery:handleResetGallery,restoreApproved:handleRestoreApproved};
-  Object.entries(handlers).forEach(([id,fn])=>wire(id,fn));
-
 }
 document.addEventListener('click',function(e){
   const toggle=e.target.closest('.section-toggle');
@@ -655,7 +626,7 @@ wireChange('pctCategory',()=>fillOfferItems($('pctCategory').value,'pctItems'));
 wireChange('spCategory',()=>fillOfferItems($('spCategory').value,'spItems'));
 wire('logoutBtn',async()=>{try{await window.adminAuth.signOut()}finally{window.location.href='index.html'}});
 wire('uploadGallery',handleUploadGallery);
-bindGalleryLibrary();
+try{bindGalleryLibrary()}catch(error){console.error('Gallery library binding error:',error)}
 const heroFile=$('heroImageFile'); if(heroFile)heroFile.addEventListener('change',heroChooseImage);
 wire('heroAddImage',heroUploadImage); wire('heroResetAdjust',heroResetAdjust); wire('heroRemoveCustom',heroRemoveCustom);
 wire('heroSavePreview',heroSavePreview); wire('heroApplyLive',heroApplyLive); wire('heroDiscardPreview',heroDiscardPreview);
@@ -666,11 +637,10 @@ wire('heroAdjustClose',heroCloseAdjust); wire('heroAdjustDone',heroCloseAdjust);
 const adjust=$('heroAdjustModal'); if(adjust)adjust.addEventListener('click',e=>{if(e.target.id==='heroAdjustModal')heroCloseAdjust()});
 document.addEventListener('keydown',e=>{const modal=$('heroAdjustModal');if(e.key==='Escape'&&(!modal||!modal.classList.contains('open')))return;if(e.key==='Escape')heroCloseAdjust()});
 const tap=$('heroPreviewTapArea'); if(tap){tap.addEventListener('click',e=>{if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()});tap.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}})}
-bindGalleryImagePreview();
+try{bindGalleryImagePreview()}catch(error){console.error('Gallery image preview binding error:',error)}
 wire('uploadLogo',handleUploadLogo); wire('removeLogo',handleRemoveLogo);
 const handlers={saveContact:handleSaveContact,saveSocial:handleSaveSocial,saveBooking:handleSaveBooking,savePct:savePercentage,deactivatePct:()=>deactivateOfferType('percentage'),saveSp:saveSpecial,deactivateSp:()=>deactivateOfferType('special'),refreshAppointments:loadAppointments,exportAppointments:()=>appointmentExportModal.classList.remove('hidden'),closeAppointmentExport:()=>appointmentExportModal.classList.add('hidden'),downloadAppointmentsExcelBtn:()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsExcel()},downloadAppointmentsPdfBtn:()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsPdf()},backupBtn:downloadSiteBackup,resetRates:handleResetRates,resetOffers:handleResetOffers,resetGallery:handleResetGallery,restoreApproved:handleRestoreApproved};
-Object.entries(handlers).forEach(([id,fn])=>wire(id,fn));
-}
+Object.entries(handlers).forEach(([id,fn])=>wire(id,fn));.forEach(b=>b.onclick=()=>showTab(b.dataset.tab));['pctCategory','spCategory'].forEach(id=>$(id).addEventListener('change',()=>fillOfferItems($(id).value,id==='pctCategory'?'pctItems':'spItems')));logoutBtn.onclick=async()=>{try{await window.adminAuth.signOut()}finally{window.location.href='index.html'}};uploadGallery.onclick=handleUploadGallery;try{bindGalleryLibrary()}catch(error){console.error('Gallery library binding error:',error)}document.getElementById('heroImageFile').addEventListener('change',heroChooseImage);document.getElementById('heroAddImage').addEventListener('click',heroUploadImage);document.getElementById('heroResetAdjust').onclick=heroResetAdjust;document.getElementById('heroRemoveCustom').onclick=heroRemoveCustom;document.getElementById('heroSavePreview').onclick=heroSavePreview;document.getElementById('heroApplyLive').onclick=heroApplyLive;document.getElementById('heroDiscardPreview').onclick=heroDiscardPreview;document.getElementById('heroDesktopTab').onclick=()=>{heroEditorDevice='desktop';document.getElementById('heroDesktopTab').classList.add('active');document.getElementById('heroMobileTab').classList.remove('active');heroRenderEditor()};document.getElementById('heroMobileTab').onclick=()=>{heroEditorDevice='mobile';document.getElementById('heroMobileTab').classList.add('active');document.getElementById('heroDesktopTab').classList.remove('active');heroRenderEditor()};document.getElementById('heroAdjustModeSwitch').addEventListener('input',e=>heroModalSetMode(Number(e.target.value)===0?'text':Number(e.target.value)===2?'image':'normal'));document.getElementById('heroAdjustClose').onclick=heroCloseAdjust;document.getElementById('heroAdjustDone').onclick=heroCloseAdjust;document.getElementById('heroAdjustModal').addEventListener('click',e=>{if(e.target.id==='heroAdjustModal')heroCloseAdjust()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.getElementById('heroAdjustModal').classList.contains('open'))return;if(e.key==='Escape')heroCloseAdjust()});document.getElementById('heroPreviewTapArea').onclick=e=>{if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()};document.getElementById('heroPreviewTapArea').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}};try{bindGalleryImagePreview()}catch(error){console.error('Gallery image preview binding error:',error)}document.getElementById('uploadLogo').addEventListener('click',e=>{e.preventDefault();handleUploadLogo()});document.getElementById('removeLogo').addEventListener('click',e=>{e.preventDefault();handleRemoveLogo()});saveContact.onclick=handleSaveContact;saveSocial.onclick=handleSaveSocial;saveBooking.onclick=handleSaveBooking;savePct.onclick=savePercentage;deactivatePct.onclick=()=>deactivateOfferType('percentage');saveSp.onclick=saveSpecial;deactivateSp.onclick=()=>deactivateOfferType('special');refreshAppointments.onclick=loadAppointments;exportAppointments.onclick=()=>appointmentExportModal.classList.remove('hidden');closeAppointmentExport.onclick=()=>appointmentExportModal.classList.add('hidden');downloadAppointmentsExcelBtn.onclick=()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsExcel()};downloadAppointmentsPdfBtn.onclick=()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsPdf()};backupBtn.onclick=downloadSiteBackup;resetRates.onclick=handleResetRates;resetOffers.onclick=handleResetOffers;resetGallery.onclick=handleResetGallery;restoreApproved.onclick=handleRestoreApproved
 function resetAdminView(){document.querySelectorAll('.admin-section-card.open').forEach(c=>c.classList.remove('open'));showTab('main');window.scrollTo(0,0)}
 try{bind()}catch(error){console.error("Admin binding error:",error)}window.adminAuth.setPersistence().catch(()=>{});window.adminAuth.onAuthStateChanged(user=>{if(user){loginScreen.classList.add('hidden');dashboard.classList.remove('hidden');resetAdminView();setTimeout(()=>{startDashboard().catch(error=>console.error('Admin dashboard initialization failed:',error))},0)}else{dashboard.classList.add('hidden');loginScreen.classList.remove('hidden');resetAdminView();loginScreen.scrollTop=0;setTimeout(async()=>{try{const {data,error}=await window.supabaseClient.from('site_content').select('data').eq('id',true).maybeSingle();if(error)throw error;loginLogo.src=data?.data?.brand?.logoUrl||ARK_DEFAULT.brand.logoUrl}catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}},0)}});
 (function bindHeroDirectControlsSafely(){
