@@ -500,3 +500,225 @@ function renderAppointments(rows){
   }).join('')||'<div class="appointment-empty">No appointments yet.</div>';
 }
 async function loadAppointments(){if(!window.supabaseReady||!window.supabaseClient){if(window.appointmentCount)appointmentCount.textContent='Supabase unavailable';return}try{const {data,error}=await window.supabaseClient.from('appointments').select('*').order('created_at',{ascending:false});if(error)throw error;const rows=(data||[]).map(row=>({...row,id:row.id,createdAt:row.created_at||row.createdAt}));renderAppointments(rows);if(window.appointmentCount&&rows.length===0)appointmentCount.textContent='0 Appointments — no records found';if(!appointmentsListener){appointmentsListener=window.supabaseClient.channel('ark-live-appointments-admin').on('postgres_changes',{event:'*',schema:'public',table:'appointments'},()=>loadAppointments()).subscribe(status=>{if(status==='CHANNEL_ERROR')console.warn('Appointments realtime unavailable.');});}}catch(e){if(window.appointmentCount)appointmentCount.textContent='Could not load appointments';console.error('Appointments load error:',e)}}
+
+async function copyAppointmentPhone(id,button){const a=(window.appointmentsData||[]).find(x=>x.id===id);if(!a?.phone)return;try{await navigator.clipboard.writeText(String(a.phone));const old=button.textContent;button.textContent='Copied';setTimeout(()=>button.textContent=old,1200)}catch(e){const t=document.createElement('textarea');t.value=String(a.phone);document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();button.textContent='Copied';setTimeout(()=>button.textContent='Copy',1200)}}
+async function setAppointmentStatus(id,status){try{const {error}=await window.supabaseClient.from('appointments').update({status}).eq('id',id);if(error)throw error;await loadAppointments()}catch(e){alert('Could not update appointment: '+e.message)}}
+async function deleteAppointment(id){const a=(window.appointmentsData||[]).find(x=>x.id===id);const label=a?.name?String(a.name):'this appointment';if(!confirm('Delete '+label+' permanently? This cannot be undone.'))return;try{const {error}=await window.supabaseClient.from('appointments').delete().eq('id',id);if(error)throw error;await loadAppointments()}catch(e){alert('Could not delete appointment: '+e.message)}}
+function exportAppointmentsExcel(){const rows=window.appointmentsData||[];if(!rows.length)return alert('No appointments to export.');if(!window.XLSX)return alert('Excel export library could not load. Please refresh and try again.');const data=[['Booking ID','Booked On','Appointment Date','Time','Customer','Phone','Guests','Status','Total','Service Details','Duration Details','Offer Details','Regular Rate','Created At'],...rows.map(a=>{const people=Array.isArray(a.people)?a.people:[];const services=people.length?people.map(p=>'Person '+(p.person||'')+': '+(p.service||'')).join(' | '):(a.service||'');const durations=people.length?people.map(p=>'Person '+(p.person||'')+': '+(p.duration||'')).join(' | '):(a.selectedDuration||a.duration||'');const offers=people.length?people.map(p=>'Person '+(p.person||'')+': '+(p.offer||'Regular')).join(' | '):(a.offer||'Regular');return [a.id||'',a.createdAt||'',a.date||'',a.time||'',a.name||'',a.phone||'',a.guestCount||a.guests||people.length||1,a.status||'Pending',a.finalPrice||a.totalAmount||'',services,durations,offers,a.regularRate||'',a.createdAt||'']})];const ws=XLSX.utils.aoa_to_sheet(data);ws['!cols']=[{wch:24},{wch:22},{wch:18},{wch:12},{wch:22},{wch:15},{wch:9},{wch:14},{wch:14},{wch:55},{wch:35},{wch:35},{wch:25},{wch:22}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Appointments');XLSX.writeFile(wb,'the-ark-appointments.xlsx')}
+function exportAppointmentsPdf(){
+  const rows=window.appointmentsData||[];
+  if(!rows.length)return alert('No appointments to export.');
+  if(!window.jspdf||!window.jspdf.jsPDF)return alert('PDF export library could not load. Please refresh and try again.');
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const margin=10,pageW=297,pageH=210;
+  let y=14;
+  const title='The Ark Spa & Salon — Appointments';
+  const headers=['#','Booked On','Appointment Date','Time','Customer','Phone','Guests','Status','Total'];
+  const widths=[9,35,27,18,42,30,16,24,30];
+  const gap=2;
+  const lineH=5;
+  const rowH=10;
+  const x0=margin;
+  const textVal=v=>String(v??'').replace(/\s+/g,' ').trim();
+  const peopleText=a=>{
+    const people=Array.isArray(a.people)?a.people:[];
+    if(!people.length)return textVal(a.service||'');
+    return people.map(p=>'P'+(p.person||'')+': '+textVal(p.service||'')+' / '+textVal(p.duration||'')+' / '+textVal(p.offer||'Regular')).join(' | ');
+  };
+  const drawHeader=()=>{
+    doc.setFontSize(8);doc.setFont(undefined,'bold');
+    let x=x0;
+    headers.forEach((h,i)=>{doc.rect(x,y,widths[i],8);doc.text(h,x+2,y+5);x+=widths[i]+gap});
+    y+=8;doc.setFont(undefined,'normal');
+  };
+  doc.setFontSize(15);doc.setFont(undefined,'bold');doc.text(title,margin,y);y+=9;
+  doc.setFontSize(8);doc.setFont(undefined,'normal');doc.text('Exported: '+new Date().toLocaleString('en-IN'),margin,y);y+=6;
+  drawHeader();
+  rows.forEach((a,idx)=>{
+    if(y+rowH>pageH-12){doc.addPage();y=14;doc.setFontSize(11);doc.setFont(undefined,'bold');doc.text(title+' (continued)',margin,y);y+=7;drawHeader()}
+    const values=[
+      idx+1,textVal(a.createdAt),textVal(a.date),textVal(a.time),textVal(a.name||'—'),
+      textVal(a.phone),a.guestCount||a.guests||(Array.isArray(a.people)?a.people.length:1),
+      textVal(a.status||'Pending'),textVal(a.finalPrice||a.totalAmount||'')
+    ];
+    let x=x0;
+    values.forEach((v,i)=>{
+      doc.rect(x,y,widths[i],rowH);
+      const lines=doc.splitTextToSize(String(v),widths[i]-4).slice(0,2);
+      doc.text(lines,x+2,y+4.5,{maxWidth:widths[i]-4});
+      x+=widths[i]+gap;
+    });
+    y+=rowH;
+    if(y+12>pageH-12){
+      doc.addPage();y=14;doc.setFontSize(11);doc.setFont(undefined,'bold');doc.text(title+' (continued)',margin,y);y+=7;drawHeader();
+    }
+  });
+  // Add service details on following pages so every appointment's booking data is preserved.
+  doc.addPage();y=14;doc.setFontSize(13);doc.setFont(undefined,'bold');doc.text('Appointment Service Details',margin,y);y+=8;doc.setFont(undefined,'normal');doc.setFontSize(8);
+  rows.forEach((a,idx)=>{
+    const detail='Booking '+(idx+1)+' | '+textVal(a.name||'—')+' | '+textVal(a.date)+' '+textVal(a.time)+' | '+peopleText(a);
+    const lines=doc.splitTextToSize(detail,pageW-margin*2);
+    if(y+lines.length*4+6>pageH-10){doc.addPage();y=14;doc.setFontSize(13);doc.setFont(undefined,'bold');doc.text('Appointment Service Details (continued)',margin,y);y+=8;doc.setFont(undefined,'normal');doc.setFontSize(8)}
+    doc.text(lines,margin,y);y+=lines.length*4+3;
+  });
+  doc.save('the-ark-appointments.pdf');
+}
+
+async function downloadSiteBackup(){try{await arkLoad();const payload={backupVersion:1,createdAt:new Date().toISOString(),siteContent:arkData};const b=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});const url=URL.createObjectURL(b);const a=document.createElement('a');a.href=url;a.download='the-ark-site-data-backup.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='✓ Fresh JSON backup downloaded from current site data.'}catch(e){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Backup failed: '+e.message}}
+async function handleResetOffers(){if(!confirm('Reset offers only?'))return;try{await arkSave({offers:[]});arkData.offers=[];renderOffers();recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='✓ Offers reset. Public website will update automatically.'}catch(e){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Reset failed: '+e.message}}
+async function handleResetGallery(){if(!confirm('Reset Gallery only?'))return;try{await arkSave({gallery:JSON.parse(JSON.stringify(ARK_DEFAULT.gallery))});renderGalleryAdmin();recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='✓ Gallery reset. Public website will update automatically.'}catch(e){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Reset failed: '+e.message}}
+async function handleResetRates(){if(!confirm('Reset all rates to the approved Ark menu source?'))return;try{await arkSave({menu:JSON.parse(JSON.stringify(ARK_DEFAULT.menu))});currentRateName='';renderRates();recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='✓ Approved rates restored. Public website will update automatically.'}catch(e){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Reset failed: '+e.message}}
+async function handleRestoreApproved(){if(!confirm('Restore the approved working Ark defaults? This will reset rates, offers, gallery, social links, contact and booking settings.'))return;if(!window.supabaseReady||!window.supabaseClient){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Restore failed: Supabase is unavailable';return}try{await arkSave({phone:ARK_DEFAULT.phone,whatsapp:ARK_DEFAULT.whatsapp,address:ARK_DEFAULT.address,brand:{...ARK_DEFAULT.brand},social:{...ARK_DEFAULT.social},footer:{...ARK_DEFAULT.footer},menu:JSON.parse(JSON.stringify(ARK_DEFAULT.menu)),gallery:JSON.parse(JSON.stringify(ARK_DEFAULT.gallery)),offers:[],bookingMode:'both',bookingEnabled:true,whatsappBookingEnabled:true,websiteBookingEnabled:true});await arkLoad();await hydrate();recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='✓ Approved working Ark defaults restored everywhere.'}catch(e){recoveryMsg.classList.remove('hidden');recoveryMsg.textContent='Restore failed: '+e.message}}
+async function hydrate(){renderHeroEditor();contactPhone.value=arkData.phone;contactWhatsapp.value=arkData.whatsapp;contactAddress.value=arkData.address;bookingMode.value=arkData.bookingMode;fillCategorySelect('pctCategory');fillCategorySelect('spCategory');fillPctValues();fillDurations();pctCategory.value='__all__';spCategory.value='__all__';fillOfferItems('__all__','pctItems');fillOfferItems('__all__','spItems');loadSavedOfferIntoForm('percentage');loadSavedOfferIntoForm('special');renderRates();renderOffers();try{await ensureGalleryLibraryMigration()}catch(e){console.warn('Gallery Library migration skipped:',e)}renderGalleryAdmin();renderLogo();renderSocialAdmin()}
+async function startDashboard(){await arkLoad();hydrate();}
+function bind(){
+  const loginFormEl=document.getElementById('loginForm');
+  const emailEl=document.getElementById('email');
+  const passwordEl=document.getElementById('password');
+  const loginMsgEl=document.getElementById('loginMsg');
+  if(loginFormEl){
+    loginFormEl.addEventListener('submit',async e=>{
+      e.preventDefault();
+      e.stopPropagation();
+      if(loginMsgEl)loginMsgEl.classList.add('hidden');
+      try{
+        if(!window.adminAuth)throw new Error('Admin login service is not available. Please refresh the page.');
+        await window.adminAuth.setPersistence();
+        const result=await window.adminAuth.signInWithEmailAndPassword(emailEl.value.trim(),passwordEl.value);
+        if(!result||!result.user)throw new Error('Login completed without an admin user session.');
+        loginScreen.classList.add('hidden');
+        dashboard.classList.remove('hidden');
+        resetAdminView();
+        await startDashboard();
+      }catch(err){
+        if(loginMsgEl){
+          loginMsgEl.classList.remove('hidden');
+          loginMsgEl.textContent=err&&err.message?err.message:'Login failed. Please try again.';
+        }
+        console.error('Admin login failed:',err);
+      }
+    });
+  }
+}
+document.querySelectorAll('.section-toggle').forEach(b=>b.onclick=()=>{const card=b.closest('.admin-section-card');const panel=card&&card.closest('.admin-panel');if(!card||!panel||panel.hidden||panel.classList.contains('hidden'))return;const willOpen=!card.classList.contains('open');panel.querySelectorAll(':scope > .admin-section-card.open').forEach(other=>{if(other!==card)other.classList.remove('open')});card.classList.toggle('open',willOpen);});document.querySelectorAll('.admin-tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));['pctCategory','spCategory'].forEach(id=>$(id).addEventListener('change',()=>fillOfferItems($(id).value,id==='pctCategory'?'pctItems':'spItems')));logoutBtn.onclick=async()=>{try{await window.adminAuth.signOut()}finally{window.location.href='index.html'}};uploadGallery.onclick=handleUploadGallery;bindGalleryLibrary();document.getElementById('heroImageFile').addEventListener('change',heroChooseImage);document.getElementById('heroAddImage').addEventListener('click',heroUploadImage);document.getElementById('heroResetAdjust').onclick=heroResetAdjust;document.getElementById('heroRemoveCustom').onclick=heroRemoveCustom;document.getElementById('heroSavePreview').onclick=heroSavePreview;document.getElementById('heroApplyLive').onclick=heroApplyLive;document.getElementById('heroDiscardPreview').onclick=heroDiscardPreview;document.getElementById('heroDesktopTab').onclick=()=>{heroEditorDevice='desktop';document.getElementById('heroDesktopTab').classList.add('active');document.getElementById('heroMobileTab').classList.remove('active');heroRenderEditor()};document.getElementById('heroMobileTab').onclick=()=>{heroEditorDevice='mobile';document.getElementById('heroMobileTab').classList.add('active');document.getElementById('heroDesktopTab').classList.remove('active');heroRenderEditor()};document.getElementById('heroAdjustModeSwitch').addEventListener('input',e=>heroModalSetMode(Number(e.target.value)===0?'text':Number(e.target.value)===2?'image':'normal'));document.getElementById('heroAdjustClose').onclick=heroCloseAdjust;document.getElementById('heroAdjustDone').onclick=heroCloseAdjust;document.getElementById('heroAdjustModal').addEventListener('click',e=>{if(e.target.id==='heroAdjustModal')heroCloseAdjust()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!document.getElementById('heroAdjustModal').classList.contains('open'))return;if(e.key==='Escape')heroCloseAdjust()});document.getElementById('heroPreviewTapArea').onclick=e=>{if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()};document.getElementById('heroPreviewTapArea').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}};bindGalleryImagePreview();document.getElementById('uploadLogo').addEventListener('click',e=>{e.preventDefault();handleUploadLogo()});document.getElementById('removeLogo').addEventListener('click',e=>{e.preventDefault();handleRemoveLogo()});saveContact.onclick=handleSaveContact;saveSocial.onclick=handleSaveSocial;saveBooking.onclick=handleSaveBooking;savePct.onclick=savePercentage;deactivatePct.onclick=()=>deactivateOfferType('percentage');saveSp.onclick=saveSpecial;deactivateSp.onclick=()=>deactivateOfferType('special');refreshAppointments.onclick=loadAppointments;exportAppointments.onclick=()=>appointmentExportModal.classList.remove('hidden');closeAppointmentExport.onclick=()=>appointmentExportModal.classList.add('hidden');downloadAppointmentsExcelBtn.onclick=()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsExcel()};downloadAppointmentsPdfBtn.onclick=()=>{appointmentExportModal.classList.add('hidden');exportAppointmentsPdf()};backupBtn.onclick=downloadSiteBackup;resetRates.onclick=handleResetRates;resetOffers.onclick=handleResetOffers;resetGallery.onclick=handleResetGallery;restoreApproved.onclick=handleRestoreApproved
+function resetAdminView(){document.querySelectorAll('.admin-section-card.open').forEach(c=>c.classList.remove('open'));showTab('main');window.scrollTo(0,0)}
+(function bindHeroSectionToggleDirect(){
+  const heroCard=document.getElementById('heroEditor');
+  const heroToggle=heroCard&&heroCard.querySelector('.section-toggle');
+  if(heroToggle){
+    heroToggle.onclick=()=>{
+      heroCard.classList.toggle('open');
+      if(heroCard.classList.contains('open')) heroCard.scrollIntoView({block:'nearest',behavior:'smooth'});
+    };
+  }
+})();
+try{bind()}catch(error){console.error("Admin binding error:",error)}window.adminAuth.setPersistence().catch(()=>{});window.adminAuth.onAuthStateChanged(async user=>{if(user){loginScreen.classList.add('hidden');dashboard.classList.remove('hidden');resetAdminView();await startDashboard()}else{dashboard.classList.add('hidden');loginScreen.classList.remove('hidden');resetAdminView();loginScreen.scrollTop=0;try{const {data,error}=await window.supabaseClient.from('site_content').select('data').eq('id',true).maybeSingle();if(error)throw error;loginLogo.src=data?.data?.brand?.logoUrl||ARK_DEFAULT.brand.logoUrl}catch(e){loginLogo.src=ARK_DEFAULT.brand.logoUrl}}});
+(function bindHeroDirectControlsSafely(){
+  function byId(id){return document.getElementById(id)}
+  const modeSwitch=byId('heroAdjustModeSwitch'),close=byId('heroAdjustClose'),done=byId('heroAdjustDone'),modal=byId('heroAdjustModal'),preview=byId('heroPreviewTapArea'),desktop=byId('heroDesktopTab'),mobile=byId('heroMobileTab');
+  if(modeSwitch)modeSwitch.oninput=function(e){e.stopPropagation();heroModalSetMode(Number(e.target.value)===0?'text':Number(e.target.value)===2?'image':'normal')};
+  if(close)close.onclick=function(e){e.preventDefault();e.stopPropagation();heroCloseAdjust()};
+  if(done)done.onclick=function(e){e.preventDefault();e.stopPropagation();heroCloseAdjust()};
+  if(modal)modal.onclick=function(e){if(e.target===modal)heroCloseAdjust()};
+  if(preview){preview.onclick=function(e){if(e.target.closest('a'))e.preventDefault();heroOpenAdjust()};preview.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();heroOpenAdjust()}}}
+  if(desktop)desktop.onclick=function(e){e.preventDefault();heroEditorDevice='desktop';desktop.classList.add('active');if(mobile)mobile.classList.remove('active');heroRenderEditor()};
+  if(mobile)mobile.onclick=function(e){e.preventDefault();heroEditorDevice='mobile';mobile.classList.add('active');if(desktop)desktop.classList.remove('active');heroRenderEditor()};
+})();
+</script><script>(function(){
+  const login=document.getElementById('loginScreen'),card=login&&login.querySelector('.login-card'),fields=[document.getElementById('email'),document.getElementById('password')];
+  if(!login||!card||fields.some(x=>!x))return;
+  const vv=window.visualViewport;
+  let keyboard=false;
+  function reset(){keyboard=false;login.classList.remove('keyboard-open');login.style.removeProperty('--keyboard-shift');}
+  function sync(){
+    if(!vv)return;
+    const viewportBottom=vv.height+vv.offsetTop;
+    const cardRect=card.getBoundingClientRect();
+    const active=document.activeElement;
+    const focused=fields.includes(active);
+    const keyboardLikely=window.innerHeight-vv.height>100;
+    if(!keyboardLikely){reset();return;}
+    keyboard=true;login.classList.add('keyboard-open');
+    const safeBottom=viewportBottom-16;
+    const overlap=cardRect.bottom-safeBottom;
+    const shift=Math.min(0,Math.max(-220,-overlap-8));
+    login.style.setProperty('--keyboard-shift',shift+'px');
+    if(focused&&active.scrollIntoView){setTimeout(()=>active.scrollIntoView({block:'center',inline:'nearest',behavior:'smooth'}),0)}
+  }
+  fields.forEach(el=>el.addEventListener('focus',()=>setTimeout(sync,120)));
+  fields.forEach(el=>el.addEventListener('blur',()=>setTimeout(()=>{if(!fields.includes(document.activeElement))reset()},180)));
+  vv&&vv.addEventListener('resize',sync);vv&&vv.addEventListener('scroll',sync);
+  window.addEventListener('resize',()=>setTimeout(sync,80));
+  window.addEventListener('orientationchange',()=>setTimeout(reset,300));
+})();
+</script><script id="panel-isolation-final">
+(function(){
+  const panelFor={
+    'Rates':'mainPanel',
+    'Offers':'mainPanel',
+    'Gallery':'mainPanel',
+    'Hero Section':'mainPanel',
+    'Logo':'mainPanel',
+    'Contact':'mainPanel',
+    'Social Media':'mainPanel',
+    'Booking Mode':'appointmentsPanel',
+    'Appointments':'appointmentsPanel',
+    'Recovery & Reset':'recoveryPanel'
+  };
+  function normalizePanels(){
+    const panels={
+      main:document.getElementById('mainPanel'),
+      appointments:document.getElementById('appointmentsPanel'),
+      recovery:document.getElementById('recoveryPanel')
+    };
+    if(!panels.main||!panels.appointments||!panels.recovery)return;
+    document.querySelectorAll('.admin-section-card').forEach(card=>{
+      const title=card.querySelector(':scope > .section-toggle h2')?.textContent?.trim();
+      const targetId=panelFor[title];
+      const target=targetId&&document.getElementById(targetId);
+      if(target && card.parentElement!==target) target.appendChild(card);
+    });
+  }
+  function isolate(){
+    normalizePanels();
+    const selected=document.querySelector('.admin-tab.active')?.dataset.tab||'main';
+    showTab(selected);
+  }
+  document.addEventListener('click',function(e){
+    const btn=e.target.closest('.admin-tab');
+    if(!btn)return;
+    e.preventDefault();
+    normalizePanels();
+    showTab(btn.dataset.tab);
+  },true);
+  isolate();
+})();
+</script><div id="heroAdjustModal" aria-hidden="true">
+  <div class="hero-adjust-card" role="dialog" aria-modal="true" aria-labelledby="heroAdjustTitle">
+    <div class="hero-adjust-head">
+      <h3 id="heroAdjustTitle">Hero Direct Adjust — Desktop</h3>
+      <button class="hero-adjust-close" id="heroAdjustClose" type="button" aria-label="Close Hero adjustment">×</button>
+    </div>
+    <div class="hero-adjust-modes">
+      <div class="hero-adjust-switch-wrap" id="heroAdjustModeWrap" data-mode="normal">
+        <div class="hero-adjust-switch-labels" aria-hidden="true">
+          <span>Text Mode</span>
+          <span>Normal</span>
+          <span>Image Mode</span>
+        </div>
+        <div class="hero-adjust-switch-track">
+          <span class="hero-adjust-switch-thumb" aria-hidden="true"></span>
+          <input class="hero-adjust-switch" id="heroAdjustModeSwitch" type="range" min="0" max="2" step="1" value="1" aria-label="Hero adjustment mode" aria-valuetext="Normal Mode">
+        </div>
+      </div>
+    </div>
+    <div class="hero-adjust-stage-wrap">
+      <div id="heroAdjustStage" class="hero-adjust-stage"></div>
+    </div>
+    <div class="hero-adjust-foot">
+      <div class="hero-adjust-instruction" id="heroAdjustInstruction">Image Mode: touch/hold the Hero and drag. Use two fingers to zoom in or out.</div>
+      <button class="btn primary" id="heroAdjustDone" type="button">Done</button>
+    </div>
+  </div>
+</div></body></html>
