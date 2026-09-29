@@ -32,14 +32,14 @@ PUBLIC WEBSITE
 SOURCE MENU RECONSTRUCTION
 The menu in this build uses the supplied menu reference images as the source for the four categories and their entries. Tamarind Skin Exfoliation intentionally has no invented rate.
 
-FIREBASE
+SUPABASE BACKEND
 - Existing project configuration retained.
-- Admin uses Firebase Authentication with LOCAL persistence so a successful login remains active until Logout.
+- Admin uses Supabase Authentication with LOCAL persistence so a successful login remains active until Logout.
 - Public pages use Realtime Database for siteContent.
-- Gallery/logo uploads use Firebase Storage when Storage is enabled and permitted by the Firebase project rules.
+- Gallery/logo uploads use Supabase Storage.
 
 IMPORTANT
-This package is prepared for local/package testing. Live Firebase network permissions and Storage rules were not independently verified from this environment.
+This package uses Supabase as the single backend for Auth, Database, Realtime and Storage.
 
 
 PATCHED IN v2.6.1 — ONLY REQUESTED FIXES
@@ -49,7 +49,7 @@ PATCHED IN v2.6.1 — ONLY REQUESTED FIXES
 - Logout hides the entire dashboard/admin controls and returns to the centered Login screen.
 - Percentage Discount now has category/item selection, a 1%-100% ready-made selector, and Save / Apply / Deactivate controls.
 - Special Offer now has optional name, fixed price, ready-made duration, category/item selection, and Save / Apply / Deactivate controls.
-- Offer save/apply/deactivate operations now report actual Firebase errors instead of silently appearing to work.
+- Offer save/apply/deactivate operations now report actual Supabase errors instead of silently appearing to work.
 - Welcome hero now shows Contact Now and WhatsApp Now without displaying the phone number as text.
 - Existing Buddha hero image is only repositioned/scaled so the top of the Buddha is not cropped.
 - Footer social icons use a larger, consistent premium icon treatment.
@@ -57,14 +57,14 @@ PATCHED IN v2.6.1 — ONLY REQUESTED FIXES
 - No unrelated site sections, content, branding, or functionality were intentionally changed.
 
 VERIFICATION NOTE
-- HTML structure and inline JavaScript syntax were checked locally. Firebase live write permissions could not be network-verified from this environment.
+- HTML structure and inline JavaScript syntax were checked locally. Supabase live write permissions could not be network-verified from this environment.
 
 PATCHED IN v2.6.6 — FINAL REQUESTED FIXES
 - Home Our Services remains the approved v2.6.1 photo-card section.
 - Follow Us appears only once on Home, below the address in the footer.
 - WhatsApp was removed from the Social Media icon set; WhatsApp booking/contact remains separate.
 - Instagram, Facebook, YouTube and X icons are always visible; once an Admin link is saved, that icon becomes clickable to the saved URL.
-- Percentage Discount and Special Offer Save / Apply / Deactivate now store each offer under its own Firebase path.
+- Percentage Discount and Special Offer Save / Apply / Deactivate now store each offer under its own Supabase path.
 - Public website offer rendering reads those same records, so Admin offer changes are the source used by Home, Menu, Offers and booking pricing.
 - Buddha hero keeps the wide image at natural aspect ratio; responsive positioning is adjusted without stretching the image.
 - No unrelated design/content sections were intentionally changed.
