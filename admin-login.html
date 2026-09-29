@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin Login — The Ark Spa & Salon</title><link rel="preload" as="image" href="assets/ark-logo-reference.png"><link rel="stylesheet" href="style.css"><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="supabase-config.js?v=20260929-2"></script><script src="admin-auth-config.js?v=20260929-2"></script><style>
+:root{--ark-green:#073f2d;--ark-green2:#0d5a41;--ark-gold:#c99a3a;--ark-gold2:#e7c66b;--ark-cream:#fbf6e9;--ark-paper:#fffdf7}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Arial,Helvetica,sans-serif}body{min-height:100svh;background:radial-gradient(circle at 15% 10%,rgba(231,198,107,.16),transparent 30%),linear-gradient(135deg,var(--ark-green),#031f16);color:var(--ark-green);display:grid;place-items:center;padding:24px}.login-wrap{width:min(460px,100%)}.login-card{background:rgba(255,253,247,.98);border:1px solid rgba(231,198,107,.5);border-radius:28px;padding:34px 30px 30px;box-shadow:0 28px 80px rgba(0,0,0,.28);text-align:center}.brand-logo{width:110px;height:110px;object-fit:contain;display:block;margin:0 auto 18px}.eyebrow{margin:0 0 7px;color:var(--ark-gold);font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase}.login-card h1{margin:0;color:var(--ark-green);font:700 30px Georgia,serif}.subtitle{margin:8px 0 26px;color:#607066;font-size:14px}.form{display:grid;gap:13px;text-align:left}.field label{display:block;margin:0 0 6px;color:var(--ark-green);font-size:12px;font-weight:800}.field input{width:100%;padding:14px 15px;border:1px solid #d8d1c2;border-radius:14px;background:#fff;color:#17392c;font-size:15px;outline:none}.field input:focus{border-color:var(--ark-gold);box-shadow:0 0 0 3px rgba(201,154,58,.14)}.login-btn{width:100%;border:0;border-radius:14px;padding:14px 16px;background:linear-gradient(135deg,var(--ark-gold),var(--ark-gold2));color:#17301f;font-weight:900;font-size:15px;cursor:pointer;margin-top:3px}.login-btn:disabled{opacity:.6;cursor:wait}.status{min-height:20px;margin-top:3px;color:#a52c35;font-size:13px;font-weight:700;text-align:center}.back{display:inline-block;margin-top:20px;color:var(--ark-green);font-size:13px;font-weight:800;text-decoration:none}.back:hover{color:var(--ark-gold)}@media(max-width:600px){body{padding:16px}.login-card{padding:28px 20px 24px;border-radius:22px}.brand-logo{width:92px;height:92px}.login-card h1{font-size:26px}}
+</style></head><body><main class="login-wrap"><section class="login-card"><img class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><p class="eyebrow">THE ARK · ADMIN CENTER</p><h1>Secure Admin Login</h1><p class="subtitle">Sign in to manage The Ark Spa & Salon.</p><form id="newAdminLoginForm" class="form" novalidate><div class="field"><label for="adminEmail">Admin Email</label><input id="adminEmail" type="email" autocomplete="username" required></div><div class="field"><label for="adminPassword">Password</label><input id="adminPassword" type="password" autocomplete="current-password" required></div><button id="newAdminLoginButton" class="login-btn" type="submit">Login to Admin</button><div id="newAdminLoginMsg" class="status" role="alert" aria-live="polite"></div></form><a class="back" href="index.html">← Back to Website</a></section></main><script>
+(function(){
+  const form=document.getElementById('newAdminLoginForm'),email=document.getElementById('adminEmail'),password=document.getElementById('adminPassword'),button=document.getElementById('newAdminLoginButton'),msg=document.getElementById('newAdminLoginMsg');
+  function showError(text){msg.textContent=text||''}
+  async function boot(){
+    try{const user=await window.adminAuth.getCurrentAdmin();if(user){window.location.replace('admin.html');return}}catch(e){}
+  }
+  form.addEventListener('submit',async function(e){
+    e.preventDefault();e.stopPropagation();showError('');
+    if(!email.value.trim()||!password.value){showError('Please enter your admin email and password.');return}
+    button.disabled=true;button.textContent='Signing in…';
+    try{
+      const result=await window.adminAuth.signInWithEmailAndPassword(email.value.trim(),password.value);
+      if(!result||!result.user)throw new Error('Admin session was not created.');
+      window.location.replace('admin.html');
+    }catch(error){
+      showError(error&&error.message?error.message:'Login failed. Please try again.');
+      button.disabled=false;button.textContent='Login to Admin';
+    }
+  });
+  boot();
+})();
+</script></body></html>
