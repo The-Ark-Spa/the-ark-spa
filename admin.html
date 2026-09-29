@@ -324,6 +324,13 @@ let currentRateCategory='Full Body Massage', currentRateName='';
 const categories=[...new Set(ARK_DEFAULT.menu.map(x=>x.category))];
 const $=id=>document.getElementById(id);
 window.showTab=function showTab(tab){
+  // Canonical top-level panel state: hide every panel, then show exactly one.
+  document.querySelectorAll('#dashboard > .admin-panel').forEach(function(panel){
+    panel.classList.remove('active');
+    panel.classList.add('hidden');
+    panel.hidden=true;
+    panel.style.cssText += '';
+  });
   const allowed=['main','appointments','recovery'];
   if(!allowed.includes(tab)) tab='main';
   const panelMap={
