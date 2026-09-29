@@ -58,11 +58,6 @@
   #mainPanel .admin-section-card:has(#galleryAdmin) .gallery-actions select{min-width:0;grid-column:1/-1;width:100%}
   #galleryLocationModal .gallery-location-images{grid-template-columns:repeat(2,1fr)}
 }
-</style><style id="offer-animation-override">.discount-dashboard-art .art-orbit span{border-top-color:#b29248!important;animation:arkVisibleSpin 1.2s linear infinite!important}.discount-dashboard-art .art-orbit i{background:#b29248!important;animation:arkVisibleDot 1.2s linear infinite!important}.discount-dashboard-art .art-pulse{background:#2b543e!important;animation:arkVisiblePulse .9s ease-in-out infinite!important}.discount-dashboard-art .art-sweep{animation:arkVisibleSweep 2s linear infinite!important}@keyframes arkVisibleSpin{to{transform:rotate(360deg)}}@keyframes arkVisibleDot{to{transform:rotate(360deg)}}@keyframes arkVisiblePulse{0%,100%{transform:scale(.65);opacity:.45}50%{transform:scale(1.7);opacity:1;box-shadow:0 0 0 8px rgba(43,84,62,.14)}}@keyframes arkVisibleSweep{0%{left:-35%;opacity:0}20%{opacity:1}55%{opacity:1}100%{left:125%;opacity:0}}
-/* Admin panel isolation: only the selected top-level panel may render. */
-#mainPanel.admin-panel.hidden,#appointmentsPanel.admin-panel.hidden,#recoveryPanel.admin-panel.hidden{display:none!important;visibility:hidden!important;pointer-events:none!important;height:0!important;overflow:hidden!important;margin:0!important;padding:0!important}
-#mainPanel.admin-panel:not(.hidden),#appointmentsPanel.admin-panel:not(.hidden),#recoveryPanel.admin-panel:not(.hidden){display:block!important;visibility:visible!important;pointer-events:auto!important;height:auto!important;overflow:visible!important}
-#mainPanel.admin-panel.hidden > .admin-section-card,#appointmentsPanel.admin-panel.hidden > .admin-section-card,#recoveryPanel.admin-panel.hidden > .admin-section-card{display:none!important}
 </style><style id="admin-section-width-fix">
 /* WIDTH ONLY: keep the existing height/spacing; prevent horizontal overflow in the Appointment and Recovery sections. */
 #appointmentsPanel > .admin-section-card,
@@ -255,8 +250,7 @@
 #recoveryPanel > .admin-section-card::before,
 #recoveryPanel > .admin-section-card::after{pointer-events:none!important}
 #heroAdjustModal[aria-hidden="true"]{pointer-events:none!important}
-</style></style><style id="admin-top-panel-source-of-truth">
-/* Top-level dashboard panels: exactly one visible at a time. */
+</style></style><style id="admin-top-panel-canonical">
 #dashboard > .admin-panel{display:none!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important}
 #dashboard > .admin-panel.active{display:block!important;visibility:visible!important;pointer-events:auto!important;opacity:1!important}
 </style></head><body class="admin-body">
