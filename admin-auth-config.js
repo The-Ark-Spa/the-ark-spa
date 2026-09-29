@@ -87,55 +87,35 @@
 
       const deliver=async user=>{
         if(!active)return;
-        if(!user){
-          lastUserId='';
-          cb(null);
-          return;
-        }
-
-        if(lastUserId===String(user.id||''))return;
-        lastUserId=String(user.id||'');
-
+        if(!user){lastUserId='';cb(null);return;}
+        const incomingId=String(user.id||'');
+        if(lastUserId===incomingId)return;
         try{
           const verified=await getVerifiedUser();
+          if(!active)return;
+          if(!verified){lastUserId='';cb(null);return;}
           if(!isAdminUser(verified)){
-            try{await client.auth.signOut({scope:'local'});}catch(e){}
             lastUserId='';
+            try{await client.auth.signOut({scope:'local'});}catch(e){}
             if(active)cb(null);
             return;
           }
-          if(active)cb(verified);
+          lastUserId=String(verified.id||'');
+          cb(verified);
         }catch(e){
-          console.warn('Admin identity verification failed:',e);
-          try{await client.auth.signOut({scope:'local'});}catch(err){}
-          lastUserId='';
-          if(active)cb(null);
+          console.warn('Admin identity verification deferred:',e);
+          if(active&&lastUserId==='')cb(null);
         }
       };
 
-      client.auth.getSession().then(({data,error})=>{
-        if(!active)return;
-        if(error){
-          console.warn('Supabase session check failed:',error);
-          deliver(null);
-          return;
-        }
-        deliver(data&&data.session?data.session.user:null);
-      }).catch(error=>{
-        if(active){
-          console.warn('Supabase session check failed:',error);
-          deliver(null);
-        }
+      const {data}=client.auth.onAuthStateChange((_event,session)=>{
+        setTimeout(()=>deliver(session&&session.user?session.user:null),0);
       });
 
-      const {data}=client.auth.onAuthStateChange((_event,session)=>{
-        if(!session){
-          lastUserId='';
-          deliver(null);
-          return;
-        }
-        deliver(session.user);
-      });
+      client.auth.getSession().then(({data:sessionData,error})=>{
+        if(error){console.warn('Supabase session check failed:',error);return;}
+        setTimeout(()=>deliver(sessionData&&sessionData.session?sessionData.session.user:null),0);
+      }).catch(error=>console.warn('Supabase session check failed:',error));
 
       return ()=>{
         active=false;
