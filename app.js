@@ -102,8 +102,8 @@
     };
   }
 
-  window.arkLoad=async function(){try{const s=await db.ref('siteContent').once('value');window.arkData=merge(s.exists()?s.val():{});}catch(e){console.warn('Site content unavailable; using safe defaults.',e);window.arkData=merge(window.arkData)}return window.arkData;};
-  window.arkSave=async function(patch){await db.ref('siteContent').update(patch);window.arkData=merge({...window.arkData,...patch});return window.arkData;};
+  window.arkLoad=async function(){try{const {data,error}=await window.supabaseClient.from('site_content').select('data').eq('id',true).maybeSingle();if(error)throw error;window.arkData=merge(data?.data||{});}catch(e){console.warn('Site content unavailable; using safe defaults.',e);window.arkData=merge(window.arkData)}return window.arkData;};
+  window.arkSave=async function(patch){const current=await window.supabaseClient.from('site_content').select('data').eq('id',true).single();if(current.error)throw current.error;const next={...(current.data?.data||{}),...patch};const {error}=await window.supabaseClient.from('site_content').update({data:next,updated_at:new Date().toISOString()}).eq('id',true);if(error)throw error;window.arkData=merge(next);return window.arkData;};
     window.escapeHtml=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   window.escapeAttr=s=>escapeHtml(s).replace(/`/g,'&#96;');
   window.formatMoney=n=>'₹'+Number(n||0).toLocaleString('en-IN',{useGrouping:false,maximumFractionDigits:2});
