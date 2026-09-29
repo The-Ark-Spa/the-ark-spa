@@ -237,9 +237,9 @@ function renderHomeOffers(){const offers=getActiveOffers();const specials=offers
   const modal=document.getElementById('adminLoginModal'),form=document.getElementById('adminLoginForm'),email=document.getElementById('adminLoginEmail'),password=document.getElementById('adminLoginPassword'),button=document.getElementById('adminLoginButton'),msg=document.getElementById('adminLoginMsg');
   if(!modal||!form||!email||!password||!button||!msg)return;
   window.openAdminLogin=async function(){
-    msg.textContent='';button.disabled=false;button.textContent='Login to Admin';modal.classList.remove('hidden');document.body.style.overflow='hidden';
+    msg.textContent='';button.disabled=false;button.textContent='Login to Admin';
     try{const user=await window.adminAuth.getCurrentAdmin();if(user){window.location.replace('admin.html?v=20260929-auth-final');return}}catch(e){}
-    setTimeout(()=>email.focus(),80);
+    modal.classList.remove('hidden');document.body.style.overflow='hidden';setTimeout(()=>email.focus(),80);
   };
   window.closeAdminLogin=function(){modal.classList.add('hidden');document.body.style.removeProperty('overflow');msg.textContent='';password.value=''};
   modal.addEventListener('click',e=>{if(e.target===modal)window.closeAdminLogin()});
