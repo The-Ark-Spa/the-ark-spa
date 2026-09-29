@@ -152,44 +152,5 @@
     }
   };
 
-  // Defensive login bootstrap: keeps the browser form from performing a native
-  // page reload if another inline admin script fails before its own bind() runs.
-  document.addEventListener('DOMContentLoaded',()=>{
-    const form=document.getElementById('loginForm');
-    const emailEl=document.getElementById('email');
-    const passwordEl=document.getElementById('password');
-    const msg=document.getElementById('loginMsg');
-    const loginScreen=document.getElementById('loginScreen');
-    const dashboard=document.getElementById('dashboard');
-    if(!form||!emailEl||!passwordEl)return;
 
-    form.addEventListener('submit',async event=>{
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      if(msg){msg.classList.add('hidden');msg.textContent='';}
-
-      const rawId=String(emailEl.value||'').trim();
-      const password=String(passwordEl.value||'');
-      const email=rawId.toLowerCase()==='admin'?'admin@thearkspa.com':rawId;
-
-      try{
-        if(!email||!password)throw new Error('Enter the admin email and password.');
-        const result=await window.adminAuth.signInWithEmailAndPassword(email,password);
-        if(!result||!result.user)throw new Error('Login completed without an admin session.');
-
-        if(loginScreen)loginScreen.classList.add('hidden');
-        if(dashboard)dashboard.classList.remove('hidden');
-
-        if(typeof window.resetAdminView==='function')window.resetAdminView();
-        if(typeof window.startDashboard==='function')await window.startDashboard();
-      }catch(error){
-        if(msg){
-          msg.textContent=error&&error.message?error.message:'Login failed. Please check the Admin Email and Password.';
-          msg.classList.remove('hidden');
-        }
-        passwordEl.value='';
-        console.error('Admin login failed:',error);
-      }
-    },true);
-  });
 })();
