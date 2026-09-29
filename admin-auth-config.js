@@ -84,30 +84,44 @@
       const client=getClient();
       let active=true;
       let lastUserId=null;
+      let initialized=false;
 
-      const deliver=(user)=>{
+      const deliver=(event,session)=>{
         if(!active)return;
+        const user=session&&session.user?session.user:null;
+
+        // A refresh can emit intermediate auth events while the persisted
+        // session is being restored. Only an explicit SIGNED_OUT event may
+        // clear an already-authorized admin session.
         if(!user){
-          if(lastUserId!==null){
+          if(event==='SIGNED_OUT'){
             lastUserId=null;
+            initialized=true;
+            cb(null);
+          }else if(!initialized){
+            initialized=true;
             cb(null);
           }
           return;
         }
+
         const userId=String(user.id||'');
         if(userId!==ADMIN_USER_ID){
           lastUserId=null;
+          initialized=true;
           cb(null);
           setTimeout(()=>client.auth.signOut({scope:'local'}).catch(()=>{}),0);
           return;
         }
+
+        initialized=true;
         if(lastUserId===userId)return;
         lastUserId=userId;
         cb(user);
       };
 
-      const {data}=client.auth.onAuthStateChange((_event,session)=>{
-        setTimeout(()=>deliver(session&&session.user?session.user:null),0);
+      const {data}=client.auth.onAuthStateChange((event,session)=>{
+        setTimeout(()=>deliver(event,session),0);
       });
 
       return ()=>{
