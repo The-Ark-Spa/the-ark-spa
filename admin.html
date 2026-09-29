@@ -244,7 +244,8 @@
 #heroAdjustModal .hero-adjust-instruction{color:var(--green);font-size:13px;font-weight:700}
 @media(max-width:760px){#heroAdjustModal{padding:8px}#heroAdjustModal .hero-adjust-card{max-height:98vh;padding:10px;border-radius:18px}#heroAdjustModal .hero-adjust-head h3{font-size:19px}#heroAdjustModal .hero-adjust-stage-wrap{padding:6px}#heroAdjustModal .hero-adjust-foot{align-items:stretch}#heroAdjustModal .hero-adjust-instruction{width:100%;font-size:12px}}</style></head><body class="admin-body">
 <div id="adminAuthGate" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#fbf6e9;color:#073f2d;font-family:Arial,sans-serif;font-weight:700;z-index:99999">Loading Admin Dashboard…</div>
-<script id="admin-auth-bootstrap">
+
+<div id="dashboard" class="admin-shell hidden"><script id="admin-auth-bootstrap">
 (function(){
   const gate=document.getElementById('adminAuthGate');
   const dashboard=document.getElementById('dashboard');
@@ -277,8 +278,7 @@
     });
   }
 })();
-</script>
-<div id="dashboard" class="admin-shell hidden"><div class="admin-top"><a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a><button class="btn logout" id="logoutBtn">Logout</button></div>
+</script><div class="admin-top"><a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a><button class="btn logout" id="logoutBtn">Logout</button></div>
 <div class="admin-nav"><button class="admin-tab active" data-tab="main">Main Controls</button><button class="admin-tab" data-tab="appointments">Appointments</button><button class="admin-tab" data-tab="recovery">Recovery</button></div>
 <div id="mainPanel" class="admin-panel">
 <div class="admin-section-card"><button class="section-toggle"><span><h2>Rates</h2><span class="sub">Category → massage → actual rate</span></span><span class="chev">⌄</span></button><div class="admin-section-content"><div class="rate-layout"><div class="category-list" id="rateCategories"></div><div><div class="rate-items" id="rateItems"></div><div id="rateEditor" class="rate-editor hidden"></div></div></div><div id="rateMsg" class="status hidden" style="margin-top:12px"></div></div></div>
