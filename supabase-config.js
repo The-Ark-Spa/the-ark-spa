@@ -7,7 +7,7 @@ window.supabaseConfig={projectId:'nxgbwfxnnfghlyehmlkv'};
 window.supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 
 function makeSnap(value){
-  return {exists:()=>value!==null&&value!==undefined,val:()=>value};
+  return {exists:()=>value!==null&&value!==undefined,val:()=>value,forEach:(cb)=>{if(value&&typeof value==='object')Object.keys(value).forEach(k=>cb({key:k,val:()=>value[k]}));}};
 }
 function normalizePath(path){
   return String(path||'').replace(/^\/+|\/+$/g,'');
