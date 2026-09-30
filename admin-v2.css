@@ -114,7 +114,7 @@
 .admin-panel{
   width:100%;
   box-sizing:border-box;
-  padding:20px;
+  padding:20px 0;
 }
 
 .admin-panel.hidden{
@@ -387,7 +387,7 @@
     font-size:12px;
     border-radius:12px;
   }
-  .admin-panel{padding:12px}
+  .admin-panel{padding:12px 0}
   .admin-section-card>.section-toggle{
     min-height:68px;
     padding:13px 13px;
