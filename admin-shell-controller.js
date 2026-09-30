@@ -1,43 +1,54 @@
 (function(){
   'use strict';
 
-  const PANELS={
-    main:'mainPanel',
-    appointments:'appointmentsPanel',
-    recovery:'recoveryPanel'
+  const PANELS={main:'mainPanel',appointments:'appointmentsPanel',recovery:'recoveryPanel'};
+  const SECTION_OWNER={
+    'Rates':'main','Offers':'main','Hero Section':'main','Gallery':'main','Logo':'main','Contact':'main','Social Media':'main',
+    'Booking Mode':'appointments','Appointments':'appointments',
+    'Recovery & Reset':'recovery'
   };
 
-  const MAIN_MARKERS=['rateCategories','offerList','heroEditor','galleryAdmin','logoPreview','contactPhone','socialAdmin'];
-  const APPOINTMENT_MARKERS=['bookingMode','appointmentRows'];
-  const RECOVERY_MARKERS=['recoveryMsg'];
+  const panel=name=>document.getElementById(PANELS[name]);
 
-  function cardHasMarker(card,markers){
-    return markers.some(id=>card.querySelector('#'+id));
+  function sectionTitle(card){
+    return (card.querySelector('.section-toggle h2')?.textContent||'').trim();
   }
 
-  function normalizeOwnership(){
-    const main=document.getElementById(PANELS.main);
-    const appointments=document.getElementById(PANELS.appointments);
-    const recovery=document.getElementById(PANELS.recovery);
+  /*
+   * One source of truth for section placement.
+   * Do not continuously move cards with a MutationObserver: moving DOM nodes
+   * itself creates mutations and can make the UI look duplicated during boot.
+   */
+  function enforceSectionPlacement(){
+    const cards=Array.from(document.querySelectorAll('.admin-section-card'));
+    const grouped={main:{},appointments:{},recovery:{}};
 
-    [[main,MAIN_MARKERS],[appointments,APPOINTMENT_MARKERS],[recovery,RECOVERY_MARKERS]].forEach(([panel,markers])=>{
-      if(!panel)return;
-      panel.querySelectorAll(':scope > .admin-section-card').forEach(card=>{
-        let allowed=true;
-        if(panel===main) allowed=!cardHasMarker(card,APPOINTMENT_MARKERS)&&!cardHasMarker(card,RECOVERY_MARKERS);
-        if(panel===appointments) allowed=!cardHasMarker(card,MAIN_MARKERS)&&!cardHasMarker(card,RECOVERY_MARKERS);
-        if(panel===recovery) allowed=!cardHasMarker(card,MAIN_MARKERS)&&!cardHasMarker(card,APPOINTMENT_MARKERS);
-        card.hidden=!allowed;
-        card.setAttribute('aria-hidden',allowed?'false':'true');
-        card.style.display=allowed?'':'none';
-        if(!allowed)card.classList.remove('open');
+    cards.forEach(card=>{
+      const title=sectionTitle(card);
+      const owner=SECTION_OWNER[title];
+      if(owner) (grouped[owner][title] ||= []).push(card);
+    });
+
+    Object.entries(grouped).forEach(([owner,byTitle])=>{
+      const target=panel(owner);
+      if(!target)return;
+
+      Object.values(byTitle).forEach(list=>{
+        // Prefer the card already belonging to the correct panel.
+        const keeper=list.find(card=>card.parentElement===target) || list[0];
+        list.forEach(card=>{ if(card!==keeper) card.remove(); });
+        if(keeper.parentElement!==target) target.appendChild(keeper);
       });
+    });
+
+    document.querySelectorAll('.admin-section-card>.section-toggle').forEach(btn=>{
+      btn.type='button';
     });
   }
 
   function setPanel(name){
+    enforceSectionPlacement();
     const active=PANELS[name]?name:'main';
-    normalizeOwnership();
 
     Object.entries(PANELS).forEach(([key,id])=>{
       const el=document.getElementById(id);
@@ -48,10 +59,7 @@
       el.classList.toggle('hidden',!visible);
       el.setAttribute('aria-hidden',visible?'false':'true');
       el.style.display=visible?'block':'none';
-
-      if(!visible){
-        el.querySelectorAll('.admin-section-card.open').forEach(card=>card.classList.remove('open'));
-      }
+      if(!visible) el.querySelectorAll('.admin-section-card.open').forEach(card=>card.classList.remove('open'));
     });
 
     document.querySelectorAll('.admin-tab[data-tab]').forEach(tab=>{
@@ -61,18 +69,18 @@
     });
 
     if(active==='appointments' && typeof window.loadAppointments==='function'){
-      Promise.resolve(window.loadAppointments()).catch(err=>console.error('Appointments load failed:',err));
+      Promise.resolve().then(()=>window.loadAppointments()).catch(err=>console.error('Appointments load failed:',err));
     }
   }
 
-  function toggleSection(card){
+  function toggleSection(toggle){
+    const card=toggle.closest('.admin-section-card');
     if(!card)return;
-    const panel=card.closest('.admin-panel');
-    if(!panel || panel.hidden || panel.classList.contains('hidden'))return;
-    if(card.hidden)return;
+    const owner=card.closest('.admin-panel');
+    if(!owner)return;
 
     const open=!card.classList.contains('open');
-    panel.querySelectorAll(':scope > .admin-section-card.open').forEach(other=>{
+    owner.querySelectorAll(':scope > .admin-section-card.open').forEach(other=>{
       if(other!==card)other.classList.remove('open');
     });
     card.classList.toggle('open',open);
@@ -80,61 +88,46 @@
 
   window.showTab=setPanel;
 
-  // Delegated interaction is installed immediately so no DOMContentLoaded race can disable clicks.
-  if(!window.__arkAdminControllerDelegated){
-    window.__arkAdminControllerDelegated=true;
-    document.addEventListener('click',event=>{
-      const tab=event.target.closest?.('.admin-tab[data-tab]');
-      if(tab){
-        event.preventDefault();
-        event.stopPropagation();
-        setPanel(tab.dataset.tab);
-        return;
-      }
+  document.addEventListener('pointerdown',event=>{
+    const button=event.target.closest?.('button');
+    if(button && !button.disabled){
+      button.classList.add('pressed');
+      window.setTimeout(()=>button.classList.remove('pressed'),140);
+    }
+  },{passive:true});
 
-      const toggle=event.target.closest?.('.admin-section-card > .section-toggle');
-      if(toggle){
-        event.preventDefault();
-        event.stopPropagation();
-        toggleSection(toggle.closest('.admin-section-card'));
-        return;
-      }
+  document.addEventListener('click',event=>{
+    const tab=event.target.closest?.('.admin-tab[data-tab]');
+    if(tab){
+      event.preventDefault();
+      setPanel(tab.dataset.tab);
+      return;
+    }
 
-      const logout=event.target.closest?.('#logoutBtn');
-      if(logout){
-        event.preventDefault();
-        event.stopPropagation();
-        if(logout.dataset.arkLogoutBusy==='1')return;
-        logout.dataset.arkLogoutBusy='1';
-        logout.disabled=true;
-        Promise.resolve(
-          window.adminAuth && typeof window.adminAuth.signOut==='function'
-            ? window.adminAuth.signOut()
-            : null
-        ).catch(err=>console.error('Admin logout failed:',err))
-         .finally(()=>window.location.replace('index.html'));
-      }
-    });
+    const toggle=event.target.closest?.('.admin-section-card>.section-toggle');
+    if(toggle){
+      event.preventDefault();
+      toggleSection(toggle);
+      return;
+    }
 
-    document.addEventListener('pointerdown',event=>{
-      const button=event.target.closest?.('button');
-      if(button && !button.disabled){
-        button.classList.add('pressed');
-        window.setTimeout(()=>button.classList.remove('pressed'),140);
-      }
-    },{passive:true});
-  }
+    const logout=event.target.closest?.('#logoutBtn');
+    if(logout){
+      event.preventDefault();
+      if(logout.dataset.arkLogoutBusy==='1')return;
+      logout.dataset.arkLogoutBusy='1';
+      logout.disabled=true;
+      Promise.resolve(window.adminAuth&&typeof window.adminAuth.signOut==='function'?window.adminAuth.signOut():null)
+        .catch(err=>console.error('Admin logout failed:',err))
+        .finally(()=>window.location.replace('index.html'));
+    }
+  },true);
 
   function init(){
-    normalizeOwnership();
-    document.querySelectorAll('.admin-tab[data-tab]').forEach(tab=>{tab.type='button'});
-    document.querySelectorAll('.admin-section-card > .section-toggle').forEach(toggle=>{toggle.type='button'});
+    enforceSectionPlacement();
     setPanel('main');
   }
 
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',init,{once:true});
-  }else{
-    init();
-  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init,{once:true});
+  else init();
 })();
