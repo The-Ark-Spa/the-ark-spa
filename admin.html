@@ -289,7 +289,7 @@
   }
 })();
 </script><div class="admin-top"><a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a><button class="btn logout" id="logoutBtn">Logout</button></div>
-<div class="admin-nav"><button type="button" class="admin-tab active" data-tab="main" onclick="showTab('main')">Main Controls</button><button type="button" class="admin-tab" data-tab="appointments" onclick="showTab('appointments')">Appointments</button><button type="button" class="admin-tab" data-tab="recovery" onclick="showTab('recovery')">Recovery</button></div>
+<div class="admin-nav"><button type="button" class="admin-tab active" data-tab="main">Main Controls</button><button type="button" class="admin-tab" data-tab="appointments">Appointments</button><button type="button" class="admin-tab" data-tab="recovery">Recovery</button></div>
 <div id="mainPanel" class="admin-panel active">
 <div class="admin-section-card"><button class="section-toggle"><span><h2>Rates</h2><span class="sub">Category → massage → actual rate</span></span><span class="chev">⌄</span></button><div class="admin-section-content"><div class="rate-layout"><div class="category-list" id="rateCategories"></div><div><div class="rate-items" id="rateItems"></div><div id="rateEditor" class="rate-editor hidden"></div></div></div><div id="rateMsg" class="status hidden" style="margin-top:12px"></div></div></div>
 <div class="admin-section-card"><button class="section-toggle"><span><h2>Offers</h2><span class="sub">Discount / Special Offer</span></span><span class="chev">⌄</span></button><div class="admin-section-content"><div class="offer-builder"><div class="offer-column"><div class="offer-type-card"><h3>Discount</h3><p class="admin-note">Select where the discount applies and choose a ready-made percentage. Save first, then Apply to make it live.</p><div class="form"><label>Category / Massage Selection</label><select id="pctCategory"></select><select id="pctItems" multiple size="6" aria-label="Percentage discount massage selection"></select><label>Discount</label><select id="pctValue"></select><div class="admin-actions"><button class="btn primary" id="savePct">Save</button><button class="btn danger" id="deactivatePct">Deactivate</button></div><div id="pctMsg" class="status hidden"></div></div></div><div class="discount-dashboard-art" aria-hidden="true"><div class="art-scene"><span class="art-ring ring-a"></span><span class="art-ring ring-b"></span><span class="art-glow"></span><span class="art-dot dot-a"></span><span class="art-dot dot-b"></span><span class="art-dot dot-c"></span><span class="art-sweep"></span></div></div></div><div class="offer-type-card"><h3>Special Offer</h3><p class="admin-note">Optional name, fixed price, ready-made duration, then choose the category or massage(s).</p><div class="form"><label>Offer Name <span class="admin-note">(optional)</span></label><input id="spTitle" placeholder="e.g. Festive Special"><label>Price</label><input id="spRate" type="number" min="0" step="1" placeholder="Special price"><label>Duration</label><select id="spDuration"></select><label>Category / Massage Selection</label><select id="spCategory"></select><select id="spItems" multiple size="6" aria-label="Special offer massage selection"></select><div class="admin-actions"><button class="btn primary" id="saveSp">Save</button><button class="btn danger" id="deactivateSp">Deactivate</button></div><div id="spMsg" class="status hidden"></div></div></div></div><div class="full"><h3 style="color:var(--green);font-family:Georgia,serif">Saved Offers</h3><div id="offerList" class="offer-list"></div></div></div></div></div>
@@ -324,41 +324,41 @@ let currentRateCategory='Full Body Massage', currentRateName='';
 const categories=[...new Set(ARK_DEFAULT.menu.map(x=>x.category))];
 const $=id=>document.getElementById(id);
 window.showTab=function showTab(tab){
-  // Canonical top-level panel state: hide every panel, then show exactly one.
-  document.querySelectorAll('#dashboard > .admin-panel').forEach(function(panel){
-    panel.classList.remove('active');
-    panel.classList.add('hidden');
-    panel.hidden=true;
-    panel.style.cssText += '';
-  });
-  const allowed=['main','appointments','recovery'];
-  if(!allowed.includes(tab)) tab='main';
-  const panelMap={
+  const allowed=new Set(['main','appointments','recovery']);
+  const activeTab=allowed.has(tab)?tab:'main';
+  const panels={
     main:document.getElementById('mainPanel'),
     appointments:document.getElementById('appointmentsPanel'),
     recovery:document.getElementById('recoveryPanel')
   };
-  Object.entries(panelMap).forEach(([name,panel])=>{
+  Object.entries(panels).forEach(([name,panel])=>{
     if(!panel)return;
-    const active=name===tab;
-    panel.classList.toggle('hidden',!active);
+    const active=name===activeTab;
     panel.classList.toggle('active',active);
+    panel.classList.toggle('hidden',!active);
     panel.hidden=!active;
     panel.setAttribute('aria-hidden',active?'false':'true');
-    panel.style.setProperty('display',active?'block':'none','important');
-    panel.style.setProperty('visibility',active?'visible':'hidden','important');
-    panel.style.setProperty('pointer-events',active?'auto':'none','important');
-    panel.style.setProperty('opacity',active?'1':'0','important');
-    if(!active){
-      panel.querySelectorAll('.admin-section-card.open').forEach(card=>card.classList.remove('open'));
-    }
+    panel.style.display=active?'block':'none';
+    panel.style.visibility=active?'visible':'hidden';
+    panel.style.pointerEvents=active?'auto':'none';
+    panel.style.opacity=active?'1':'0';
+    if(!active)panel.querySelectorAll('.admin-section-card.open').forEach(card=>card.classList.remove('open'));
   });
-  document.querySelectorAll('.admin-tab').forEach(btn=>{
-    btn.classList.toggle('active',btn.dataset.tab===tab);
-    btn.setAttribute('aria-selected',btn.dataset.tab===tab?'true':'false');
+  document.querySelectorAll('.admin-tab[data-tab]').forEach(btn=>{
+    const selected=btn.dataset.tab===activeTab;
+    btn.classList.toggle('active',selected);
+    btn.setAttribute('aria-selected',selected?'true':'false');
   });
-  if(tab==='appointments')loadAppointments();
-}
+  if(activeTab==='appointments'&&typeof loadAppointments==='function')loadAppointments();
+};
+document.querySelectorAll('.admin-tab[data-tab]').forEach(btn=>{
+  btn.removeAttribute('onclick');
+  btn.addEventListener('click',function(e){
+    e.preventDefault();
+    e.stopPropagation();
+    window.showTab(btn.dataset.tab);
+  });
+});
 function fillCategorySelect(id){$(id).innerHTML='<option value="__all__">All Categories</option>'+categories.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('')}
 function fillOfferItems(cat,id){const el=$(id),arr=cat==='__all__'?arkData.menu:arkData.menu.filter(x=>x.category===cat);el.innerHTML='<option value="__all__">All applicable items</option>'+arr.map(x=>`<option value="${escapeAttr(x.name)}">${escapeHtml(x.name)}</option>`).join('');if(cat==='__all__'){el.removeAttribute('multiple');el.removeAttribute('size');el.value='__all__';}else{el.setAttribute('multiple','multiple');el.setAttribute('size','6');}}
 function selectedNames(id,cat){const vals=[...$(id).selectedOptions].map(o=>o.value);const arr=cat==='__all__'?arkData.menu:arkData.menu.filter(x=>x.category===cat);return vals.includes('__all__')?arr.map(x=>x.name):vals}
