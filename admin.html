@@ -273,29 +273,6 @@
 #mainPanel .admin-section-card.open > .admin-section-content button{
   pointer-events:auto;
 }
-</style><style id="admin-panel-section-guard">
-/* Canonical panel ownership guard: Main-only sections can never render in Appointments/Recovery. */
-#appointmentsPanel .admin-section-card:has(#rateCategories),
-#appointmentsPanel .admin-section-card:has(#offerList),
-#appointmentsPanel .admin-section-card:has(#heroEditor),
-#appointmentsPanel .admin-section-card:has(#galleryAdmin),
-#appointmentsPanel .admin-section-card:has(#logoPreview),
-#appointmentsPanel .admin-section-card:has(#contactPhone),
-#appointmentsPanel .admin-section-card:has(#socialAdmin),
-#recoveryPanel .admin-section-card:has(#rateCategories),
-#recoveryPanel .admin-section-card:has(#offerList),
-#recoveryPanel .admin-section-card:has(#heroEditor),
-#recoveryPanel .admin-section-card:has(#galleryAdmin),
-#recoveryPanel .admin-section-card:has(#logoPreview),
-#recoveryPanel .admin-section-card:has(#contactPhone),
-#recoveryPanel .admin-section-card:has(#socialAdmin){
-  display:none!important;
-}
-#mainPanel .admin-section-card:has(#bookingMode),
-#mainPanel .admin-section-card:has(#appointmentRows),
-#mainPanel .admin-section-card:has(#recoveryMsg){
-  display:none!important;
-}
 </style></head><body class="admin-body">
 <div id="adminAuthGate" aria-hidden="true" style="display:none!important"></div>
 
