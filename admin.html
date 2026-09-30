@@ -625,15 +625,13 @@ function bind(){}
 document.addEventListener('click',function(e){
   const toggle=e.target.closest('.section-toggle');
   if(!toggle)return;
-  e.preventDefault();
-  e.stopPropagation();
   const card=toggle.closest('.admin-section-card');
   const panel=card&&card.closest('.admin-panel');
   if(!card||!panel)return;
   const willOpen=!card.classList.contains('open');
   panel.querySelectorAll(':scope > .admin-section-card.open').forEach(other=>{if(other!==card)other.classList.remove('open')});
   card.classList.toggle('open',willOpen);
-},true);
+},false);
 
 const wire=(id,handler)=>{const el=$(id);if(!el||typeof handler!=='function')return false;if(el.dataset.arkWired==='1')return true;el.dataset.arkWired='1';el.addEventListener('click',e=>{e.preventDefault();handler(e);});return true};
 const wireChange=(id,handler)=>{const el=$(id);if(!el||typeof handler!=='function')return false;if(el.dataset.arkWiredChange==='1')return true;el.dataset.arkWiredChange='1';el.addEventListener('change',handler);return true};
