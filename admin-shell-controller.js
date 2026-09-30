@@ -48,8 +48,9 @@
     card.classList.toggle('open',open);
   }
 
+  window.showTab=setPanel;
+
   function init(){
-    window.showTab=setPanel;
 
     document.querySelectorAll('.admin-tab[data-tab]').forEach(tab=>{
       if(tab.dataset.arkControllerWired==='1')return;
