@@ -319,46 +319,10 @@
   </div>
 </div><div id="recoveryPanel" class="admin-panel hidden"><div class="admin-section-card"><button class="section-toggle"><span><h2>Recovery & Reset</h2><span class="sub">Approved Ark state, not blank factory defaults</span></span><span class="chev">⌄</span></button><div class="admin-section-content"><div class="backup-grid"><div class="backup-card"><h3>Backup</h3><p>Download current site data before a major change.</p><button class="btn" id="backupBtn">Download JSON Backup</button></div><div class="backup-card"><h3>Reset Rates</h3><p>Restore only the approved menu rates/categories.</p><button class="btn danger" id="resetRates">Reset Rates</button></div><div class="backup-card"><h3>Reset Offers</h3><p>Remove saved offers only.</p><button class="btn danger" id="resetOffers">Reset Offers</button></div><div class="backup-card"><h3>Reset Gallery</h3><p>Restore the approved starting gallery only.</p><button class="btn danger" id="resetGallery">Reset Gallery</button></div><div class="backup-card"><h3>Restore Approved Site</h3><p>Restore editable controls to the approved working Ark defaults.</p><button class="btn danger" id="restoreApproved">Restore Approved Defaults</button></div></div><div id="recoveryMsg" class="status hidden" style="margin-top:14px"></div></div></div></div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script><script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script><script src="admin-shell-controller.js?v=20260930-1"></script><script>
 let currentRateCategory='Full Body Massage', currentRateName='';
 const categories=[...new Set(ARK_DEFAULT.menu.map(x=>x.category))];
 const $=id=>document.getElementById(id);
-window.showTab=function showTab(tab){
-  const allowed=new Set(['main','appointments','recovery']);
-  const activeTab=allowed.has(tab)?tab:'main';
-  const panels={
-    main:document.getElementById('mainPanel'),
-    appointments:document.getElementById('appointmentsPanel'),
-    recovery:document.getElementById('recoveryPanel')
-  };
-  Object.entries(panels).forEach(([name,panel])=>{
-    if(!panel)return;
-    const active=name===activeTab;
-    panel.classList.toggle('active',active);
-    panel.classList.toggle('hidden',!active);
-    panel.hidden=!active;
-    panel.setAttribute('aria-hidden',active?'false':'true');
-    panel.style.display=active?'block':'none';
-    panel.style.visibility=active?'visible':'hidden';
-    panel.style.pointerEvents=active?'auto':'none';
-    panel.style.opacity=active?'1':'0';
-    if(!active)panel.querySelectorAll('.admin-section-card.open').forEach(card=>card.classList.remove('open'));
-  });
-  document.querySelectorAll('.admin-tab[data-tab]').forEach(btn=>{
-    const selected=btn.dataset.tab===activeTab;
-    btn.classList.toggle('active',selected);
-    btn.setAttribute('aria-selected',selected?'true':'false');
-  });
-  if(activeTab==='appointments'&&typeof loadAppointments==='function')loadAppointments();
-};
-document.querySelectorAll('.admin-tab[data-tab]').forEach(btn=>{
-  btn.removeAttribute('onclick');
-  btn.addEventListener('click',function(e){
-    e.preventDefault();
-    e.stopPropagation();
-    window.showTab(btn.dataset.tab);
-  });
-});
 function fillCategorySelect(id){$(id).innerHTML='<option value="__all__">All Categories</option>'+categories.map(c=>`<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join('')}
 function fillOfferItems(cat,id){const el=$(id),arr=cat==='__all__'?arkData.menu:arkData.menu.filter(x=>x.category===cat);el.innerHTML='<option value="__all__">All applicable items</option>'+arr.map(x=>`<option value="${escapeAttr(x.name)}">${escapeHtml(x.name)}</option>`).join('');if(cat==='__all__'){el.removeAttribute('multiple');el.removeAttribute('size');el.value='__all__';}else{el.setAttribute('multiple','multiple');el.setAttribute('size','6');}}
 function selectedNames(id,cat){const vals=[...$(id).selectedOptions].map(o=>o.value);const arr=cat==='__all__'?arkData.menu:arkData.menu.filter(x=>x.category===cat);return vals.includes('__all__')?arr.map(x=>x.name):vals}
@@ -622,23 +586,11 @@ async function hydrate(){renderHeroEditor();contactPhone.value=arkData.phone;con
 async function startDashboard(){await arkLoad();hydrate();}
 function bind(){}
 
-document.addEventListener('click',function(e){
-  const toggle=e.target.closest('.section-toggle');
-  if(!toggle)return;
-  const card=toggle.closest('.admin-section-card');
-  const panel=card&&card.closest('.admin-panel');
-  if(!card||!panel)return;
-  const willOpen=!card.classList.contains('open');
-  panel.querySelectorAll(':scope > .admin-section-card.open').forEach(other=>{if(other!==card)other.classList.remove('open')});
-  card.classList.toggle('open',willOpen);
-},false);
-
 const wire=(id,handler)=>{const el=$(id);if(!el||typeof handler!=='function')return false;if(el.dataset.arkWired==='1')return true;el.dataset.arkWired='1';el.addEventListener('click',e=>{e.preventDefault();handler(e);});return true};
 const wireChange=(id,handler)=>{const el=$(id);if(!el||typeof handler!=='function')return false;if(el.dataset.arkWiredChange==='1')return true;el.dataset.arkWiredChange='1';el.addEventListener('change',handler);return true};
 const wireNamed=(id,name)=>{const fn=window[name];return wire(id,typeof fn==='function'?fn:null)};
 wireChange('pctCategory',()=>fillOfferItems($('pctCategory').value,'pctItems'));
 wireChange('spCategory',()=>fillOfferItems($('spCategory').value,'spItems'));
-wire('logoutBtn',async()=>{try{await window.adminAuth.signOut()}finally{window.location.href='index.html'}});
 wireNamed('uploadGallery','handleUploadGallery');
 try{bindGalleryLibrary()}catch(error){console.error('Gallery library binding error:',error)}
 const heroFile=$('heroImageFile');if(heroFile&&heroFile.dataset.arkWired!=='1'){heroFile.dataset.arkWired='1';heroFile.addEventListener('change',heroChooseImage)}
