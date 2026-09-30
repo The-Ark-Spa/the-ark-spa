@@ -1,7 +1,7 @@
 (function(){
 'use strict';
 const PANELS={main:'mainPanel',appointments:'appointmentsPanel',recovery:'recoveryPanel'};
-const SECTION_OWNER={'Rates':'main','Offers':'main','Hero':'main','Hero Section':'main','Gallery':'main','Logo':'main','Contact':'main','Social Media':'main','Booking Mode':'main','Appointments':'appointments','Recovery & Reset':'recovery'};
+const SECTION_OWNER={'Rates':'main','Offers':'main','Hero':'main','Hero Section':'main','Gallery':'main','Logo':'main','Contact':'main','Social Media':'main','Booking Mode':'appointments','Appointments':'appointments','Recovery & Reset':'recovery'};
 const panel=n=>document.getElementById(PANELS[n]);
 function title(card){return(card.querySelector('.section-toggle h2')?.textContent||'').trim()}
 function enforce(){
