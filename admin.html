@@ -253,6 +253,26 @@
 </style><style id="admin-top-panel-canonical">
 #dashboard > .admin-panel{display:none!important;visibility:hidden!important;pointer-events:none!important;opacity:0!important}
 #dashboard > .admin-panel.active{display:block!important;visibility:visible!important;pointer-events:auto!important;opacity:1!important}
+</style><style id="main-controls-content-visibility-fix">
+/* MAIN CONTROLS ONLY: when a section is opened, its real controls must remain visible. */
+#mainPanel .admin-section-card.open > .admin-section-content{
+  display:block !important;
+  visibility:visible !important;
+  opacity:1 !important;
+  height:auto !important;
+  max-height:none !important;
+  overflow:visible !important;
+  pointer-events:auto !important;
+}
+#mainPanel .admin-section-card.open > .admin-section-content *{
+  visibility:visible;
+}
+#mainPanel .admin-section-card.open > .admin-section-content input,
+#mainPanel .admin-section-card.open > .admin-section-content select,
+#mainPanel .admin-section-card.open > .admin-section-content textarea,
+#mainPanel .admin-section-card.open > .admin-section-content button{
+  pointer-events:auto;
+}
 </style><style id="admin-panel-section-guard">
 /* Canonical panel ownership guard: Main-only sections can never render in Appointments/Recovery. */
 #appointmentsPanel .admin-section-card:has(#rateCategories),
