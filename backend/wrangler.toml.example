@@ -1,0 +1,24 @@
+name = "the-ark-spa-api"
+main = "worker.js"
+compatibility_date = "2026-10-10"
+workers_dev = true
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "the-ark-spa-data"
+database_id = "REPLACE_WITH_CREATED_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "the-ark-spa-assets"
+
+# Set these as Worker secrets, never in this file or frontend JavaScript:
+# npx wrangler secret put ADMIN_EMAIL
+# npx wrangler secret put ADMIN_PASSWORD_HASH
+# npx wrangler secret put SESSION_SECRET
+# ALLOWED_ORIGINS should be an exact comma-separated list of production/staging origins.
+# npx wrangler secret put ALLOWED_ORIGINS
