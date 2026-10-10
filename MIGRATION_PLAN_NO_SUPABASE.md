@@ -22,6 +22,19 @@ Remove dependency on a trial-based Supabase project without taking the live webs
 
 This is source-code preparation only. It has not been deployed, connected to a live database, or tested end-to-end yet. Login rate limiting and R2 upload/list/delete endpoints still need implementation before production cutover.
 
+## No-card path — 10 October 2026
+
+The user chose not to add a payment card. R2 is therefore **not a prerequisite for the first database/API migration stage**. The initial no-card path is to provision Cloudflare Workers + D1 on the existing account and keep existing static-site hosting unchanged. Gallery uploads must remain disabled/not cut over until a storage provider is selected; do not fake upload success or silently discard files. Existing gallery assets must be backed up and their current URLs inventoried before any frontend change.
+
+A fresh read-only account check confirmed:
+- D1 databases: none.
+- Workers KV namespaces: none.
+- Worker scripts: only `the-ark-admin-auth`.
+- Creating D1 and creating a KV namespace both returned Cloudflare API error `10000: Authentication error`. This is an API authorization/connection-scope blocker, not a reason to add a card.
+- R2 remains unenabled because its setup screen asks for card information.
+
+Next action: fix/reauthorize the connected Cloudflare integration with account-level permissions to create D1 databases and Workers (and later deploy/update a Worker). Do not ask the user for card details. Retry resource provisioning only after the permission issue is resolved.
+
 ## Chosen target
 Cloudflare Workers + D1 + R2, with the existing static site hosted on its current static host.
 
