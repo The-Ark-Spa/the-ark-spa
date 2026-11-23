@@ -133,9 +133,11 @@ async function createSession(env, email) {
 }
 async function readSession(request, env) {
   const raw = request.headers.get('Cookie') || '';
-  const match = raw.match(/(?:^|;\s*)ark_admin_session=([^;]+)/);
-  if (!match || !env.SESSION_SECRET) return null;
-  const parts = match[1].split('.');
+  const cookieMatch = raw.match(/(?:^|;\s*)ark_admin_session=([^;]+)/);
+  const bearerMatch = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i);
+  const token = bearerMatch?.[1] || cookieMatch?.[1] || '';
+  if (!token || !env.SESSION_SECRET) return null;
+  const parts = token.split('.');
   if (parts.length !== 2) return null;
   const expected = b64url(await hmac(env.SESSION_SECRET, parts[0]));
   if (!equalConstantTime(expected, parts[1])) return null;
@@ -143,7 +145,7 @@ async function readSession(request, env) {
     const payload = JSON.parse(new TextDecoder().decode(unb64url(parts[0])));
     if (!payload.e || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
     if (payload.e !== env.ADMIN_EMAIL) return null;
-    const tokenHash = await digestHex(match[1]);
+    const tokenHash = await digestHex(token);
     const stored = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND admin_email = ? AND expires_at > ? AND revoked_at IS NULL')
       .bind(tokenHash, payload.e, Math.floor(Date.now() / 1000)).first();
     if (!stored) return null;
@@ -186,7 +188,7 @@ export default {
       if (!origin || !allowedOrigins(env).includes(origin)) return json({ ok: false, error: 'Origin not allowed.' }, 403);
       return new Response(null, { status: 204, headers: responseHeaders(request, env, {
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID, Idempotency-Key',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID, Idempotency-Key, Authorization',
         'Access-Control-Max-Age': '600'
       }) });
     }
@@ -306,7 +308,7 @@ export default {
           return withCors(request, env, json({ ok: false, error: 'Invalid admin ID or password.', requestId }, 401));
         }
         const token = await createSession(env, env.ADMIN_EMAIL);
-        return withCors(request, env, json({ ok: true, requestId }, 200, { 'Set-Cookie': cookie(token, SESSION_SECONDS) }));
+        return withCors(request, env, json({ ok: true, token, expiresIn: SESSION_SECONDS, requestId }, 200, { 'Set-Cookie': cookie(token, SESSION_SECONDS) }));
       } catch (error) {
         console.error('admin_login_failed', requestId, String(error));
         return withCors(request, env, json({ ok: false, error: 'Invalid login request.', requestId }, 400));
