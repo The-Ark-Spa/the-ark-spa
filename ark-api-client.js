@@ -31,6 +31,8 @@
     updateAppointment: (id, status) => request('/api/admin/appointments/' + encodeURIComponent(id), { method: 'PATCH', body: { status } }),
     deleteAppointment: id => request('/api/admin/appointments/' + encodeURIComponent(id), { method: 'DELETE' }),
     listAssets: () => request('/api/admin/assets'),
+    listBackups: () => request('/api/admin/backups'),
+    createBackup: () => request('/api/admin/backups', { method: 'POST', body: {} }),
     uploadAsset: async (file, purpose) => {
       const form = new FormData();
       form.append('file', file);
