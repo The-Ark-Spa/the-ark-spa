@@ -247,7 +247,7 @@
     document.querySelectorAll('[data-call]').forEach(a=>a.onclick=e=>{e.preventDefault();callArk()});
     document.querySelectorAll('[data-map]').forEach(a=>a.onclick=e=>{e.preventDefault();mapArk()});
     document.querySelectorAll('[data-wa]').forEach(a=>{a.onclick=e=>{e.preventDefault();wa(a.dataset.wa||'Hello The Ark Spa & Salon, I would like to book an appointment.')}});
-    document.querySelectorAll('[data-book]').forEach(a=>a.href='appointment.html');
+    document.querySelectorAll('[data-book]').forEach(a=>a.href='appointment.worker.html');
     try{if(typeof renderMenu==='function')renderMenu();}catch(e){console.warn('Menu refresh skipped:',e)}
     try{if(typeof renderHomeGallery==='function')renderHomeGallery();}catch(e){console.warn('Home gallery refresh skipped:',e)}
     try{if(typeof renderHomeOffers==='function')renderHomeOffers();}catch(e){console.warn('Home offers refresh skipped:',e)}
@@ -278,9 +278,9 @@
   window.openBookingChooser=function(){
     const mode=arkData.bookingMode||'both';
     if(mode==='whatsapp'){wa(window.WA_BOOKING_MESSAGE);return;}
-    if(mode==='website'){location.href='appointment.html';return;}
+    if(mode==='website'){location.href='appointment.worker.html';return;}
     if(mode==='none'){alert('Online booking is currently unavailable. Please call or WhatsApp The Ark Spa & Salon.');return;}
     const m=document.createElement('div');m.className='modal show';m.innerHTML=`<div class="modal-box booking-choice"><button class="close">×</button><div class="choice-logo"><img src="${escapeAttr(arkData.brand.logoUrl||DEFAULT.brand.logoUrl)}" alt="The Ark logo"></div><h3>Book Your Appointment</h3><p>Choose how you would like to book.</p><div class="choice-grid"><button class="choice-card" data-choice="website"><span>📅</span><b>Website Appointment</b></button><button class="choice-card" data-choice="wa"><span>💬</span><b>WhatsApp Appointment</b></button></div></div>`;
-    m.querySelector('.close').onclick=()=>m.remove();m.addEventListener('click',e=>{const c=e.target.closest('[data-choice]');if(!c)return;m.remove();c.dataset.choice==='wa'?wa(window.WA_BOOKING_MESSAGE):location.href='appointment.html'});document.body.appendChild(m);
+    m.querySelector('.close').onclick=()=>m.remove();m.addEventListener('click',e=>{const c=e.target.closest('[data-choice]');if(!c)return;m.remove();c.dataset.choice==='wa'?wa(window.WA_BOOKING_MESSAGE):location.href='appointment.worker.html'});document.body.appendChild(m);
   };
 })();
