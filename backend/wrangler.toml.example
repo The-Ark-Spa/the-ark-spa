@@ -15,16 +15,16 @@ migrations_dir = "migrations"
 # R2 must be enabled and this bucket created before binding is used.
 [[r2_buckets]]
 binding = "ASSETS"
-bucket_name = "REPLACE_WITH_CREATED_R2_BUCKET"
+bucket_name = "the-ark-spa-assets"
 
 # Separate private bucket: never expose appointment/customer backup data publicly.
 [[r2_buckets]]
 binding = "BACKUPS"
-bucket_name = "REPLACE_WITH_PRIVATE_BACKUP_BUCKET"
+bucket_name = "the-ark-spa-backups"
 
 [vars]
 # Replace with the HTTPS public domain configured for the R2 bucket.
-ASSET_PUBLIC_BASE_URL = "https://REPLACE_WITH_R2_PUBLIC_DOMAIN"
+ASSET_PUBLIC_BASE_URL = "https://the-ark-spa-api.bundela-ar143.workers.dev/assets/"
 
 # Set these as Worker secrets, never in this file or frontend JavaScript:
 # npx wrangler secret put ADMIN_EMAIL
