@@ -12,23 +12,12 @@ database_name = "thearkspadata"
 database_id = "4078fc56-d0c4-4748-b5d7-a8c4dcfd3d85"
 migrations_dir = "migrations"
 
-# R2 must be enabled and this bucket created before binding is used.
-[[r2_buckets]]
-binding = "ASSETS"
-bucket_name = "the-ark-spa-assets"
-
-# Separate private bucket: never expose appointment/customer backup data publicly.
-[[r2_buckets]]
-binding = "BACKUPS"
-bucket_name = "the-ark-spa-backups"
-
 [vars]
-# Replace with the HTTPS public domain configured for the R2 bucket.
-ASSET_PUBLIC_BASE_URL = "https://the-ark-spa-api.bundela-ar143.workers.dev/assets/"
+GITHUB_OWNER = "The-Ark-Spa"
+GITHUB_REPO = "the-ark-spa"
+GITHUB_BRANCH = "main"
 
-# Set these as Worker secrets, never in this file or frontend JavaScript:
-# npx wrangler secret put ADMIN_EMAIL
-# npx wrangler secret put ADMIN_PASSWORD_HASH
-# npx wrangler secret put SESSION_SECRET
-# npx wrangler secret put ALLOWED_ORIGINS
-# ALLOWED_ORIGINS must be exact origins, e.g. https://the-ark-spa.github.io
+# Set GITHUB_TOKEN as a Worker secret (never commit it).
+# Token needs Contents: Read and write on this repository only.
+# npx wrangler secret put GITHUB_TOKEN
+# Also set ADMIN_EMAIL, ADMIN_PASSWORD_HASH, SESSION_SECRET, ALLOWED_ORIGINS.
