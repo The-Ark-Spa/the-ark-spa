@@ -26,7 +26,7 @@
     request,
     getPublicContent: () => request('/api/public/site-content'),
     saveContent: (data, expectedUpdatedAt) => request('/api/admin/site-content', { method: 'PUT', body: { data, expectedUpdatedAt } }),
-    createAppointment: data => request('/api/appointments', { method: 'POST', body: data, headers: { 'Idempotency-Key': data.requestId || crypto.randomUUID() } }),
+    createAppointment: data => { const key = data.requestId || crypto.randomUUID(); data.requestId = key; return request('/api/appointments', { method: 'POST', body: data, headers: { 'Idempotency-Key': key } }); },
     listAppointments: (query = '') => request('/api/admin/appointments' + query),
     updateAppointment: (id, status) => request('/api/admin/appointments/' + encodeURIComponent(id), { method: 'PATCH', body: { status } }),
     deleteAppointment: id => request('/api/admin/appointments/' + encodeURIComponent(id), { method: 'DELETE' }),
