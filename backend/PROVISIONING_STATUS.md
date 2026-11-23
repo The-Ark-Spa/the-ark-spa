@@ -23,6 +23,9 @@ Last checked: 2026-11-23 (Asia/Kolkata)
 - Added provider-neutral browser API client, Worker-backed Admin auth adapter, and a public app adapter with last-known-good local cache.
 - Staged alternate `.worker.html` pages for the public pages, booking, login and Admin, plus staged login/navigation helpers. Inline scripts were syntax-checked. The original live HTML files remain unchanged.
 - The staged Admin now calls the API for content saves, appointment list/status/delete, gallery/hero/logo uploads, gallery asset deletion and private backup export. Multi-person booking details are preserved in the new appointment columns.
+- Seeded D1 with the existing approved frontend defaults (20 menu entries and 5 gallery entries); verified valid JSON and counts.
+- Updated the API session flow to support a short-lived tab-scoped bearer token in sessionStorage, avoiding reliance on third-party cookies for GitHub Pages to Worker requests. Origin allowlisting and server-side revocation remain enabled.
+- Corrected dynamic booking links so they open the staged Worker-backed appointment page.
 
 ## Still blocked / not provisioned
 
@@ -30,7 +33,7 @@ Last checked: 2026-11-23 (Asia/Kolkata)
 - The new Worker `the-ark-spa-api` has not been deployed.
 - The existing `the-ark-admin-auth` Worker remains separate and unchanged. Its current settings show legacy `ADMIN_PASSWORD` rather than the new `ADMIN_PASSWORD_HASH`, and it does not yet have the new D1/R2 bindings.
 - No new Admin password or Worker secrets have been provisioned.
-- No public site content or appointment data has been imported into D1; the `site_content` table is intentionally empty.
+- No legacy Supabase records were migrated; D1 starts from the approved defaults in the existing frontend. New appointment records will be stored in D1.
 - Original website/Admin HTML files have not been switched to the new adapters; the staged variants are not live.
 - No deployment, DNS change, or live website change has been made.
 
@@ -41,4 +44,6 @@ Last checked: 2026-11-23 (Asia/Kolkata)
 3. Deploy the new Worker to a staging origin, then verify CORS/session behavior on Android Chrome and desktop. Cross-site cookies may be blocked; a same-site API hostname is the reliable production solution.
 4. Finish and verify the remaining Recovery restore/reset behavior and every Admin control against the staged UI. The backup export endpoint exists; restore endpoint is still pending.
 5. Verify backup restore and public cached fallback.
-6. Obtain explicit approval before public cutover or deployment.
+6. Enable R2 in the Cloudflare Dashboard (API currently returns error 10042 until enabled), then create the public assets and private backups buckets.
+7. Provision the new Admin email/password hash and session secret as Worker secrets.
+8. Deploy and smoke-test the Worker, verify login/session from Android Chrome and desktop, then promote the staged HTML pages to the live filenames. No production cutover has happened yet.
