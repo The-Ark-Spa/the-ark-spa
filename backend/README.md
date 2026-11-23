@@ -63,4 +63,8 @@ Provision a fresh Admin identity. Do not reuse an old password or copy secrets f
 7. Test Android and desktop, API outage fallback, and quota/error behavior.
 8. Only after the user explicitly authorizes it: deploy and cut over. Keep rollback instructions and the old Supabase project intact.
 
-No live deployment or Cloudflare resource mutation is authorized by this README.
+The D1 schema setup is a staging-resource change and is complete. No Worker deployment, DNS change, or public website cutover has been made.
+
+## Current provisioning
+
+See [PROVISIONING_STATUS.md](PROVISIONING_STATUS.md) for the latest verified resource state. The D1 base schema and resilience migration are applied. R2 buckets and the new Worker deployment remain pending. The existing `the-ark-admin-auth` Worker has not been changed.
