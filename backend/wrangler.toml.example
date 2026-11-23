@@ -17,6 +17,11 @@ migrations_dir = "migrations"
 binding = "ASSETS"
 bucket_name = "REPLACE_WITH_CREATED_R2_BUCKET"
 
+# Separate private bucket: never expose appointment/customer backup data publicly.
+[[r2_buckets]]
+binding = "BACKUPS"
+bucket_name = "REPLACE_WITH_PRIVATE_BACKUP_BUCKET"
+
 [vars]
 # Replace with the HTTPS public domain configured for the R2 bucket.
 ASSET_PUBLIC_BASE_URL = "https://REPLACE_WITH_R2_PUBLIC_DOMAIN"
