@@ -13,7 +13,9 @@
     async signInWithEmailAndPassword(email, password) {
       const cleanEmail = String(email || '').trim().toLowerCase();
       if (!cleanEmail || !password) throw new Error('Enter the admin email and password.');
-      await call('/api/admin/login', { method: 'POST', body: { email: cleanEmail, password: String(password) } });
+      const login = await call('/api/admin/login', { method: 'POST', body: { email: cleanEmail, password: String(password) } });
+      if (!login.token) throw new Error('The server did not return a session token.');
+      sessionStorage.setItem('ark_admin_session_token', login.token);
       const verified = await call('/api/admin/session');
       if (!verified.ok || !verified.email) throw new Error('Admin session verification failed.');
       const user = asUser(verified.email);
@@ -30,7 +32,7 @@
       }
     },
     async signOut() {
-      await call('/api/admin/logout', { method: 'POST', body: {} });
+      try { await call('/api/admin/logout', { method: 'POST', body: {} }); } finally { sessionStorage.removeItem('ark_admin_session_token'); }
       window.dispatchEvent(new CustomEvent('ark-admin-auth-changed', { detail: null }));
     },
     onAuthStateChanged(callback) {
