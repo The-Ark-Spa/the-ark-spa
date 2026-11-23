@@ -192,7 +192,14 @@ export default {
     }
 
     if (path === '/api/health' && method === 'GET') {
-      return withCors(request, env, json({ ok: true, service: 'the-ark-spa-api', requestId }));
+      let d1 = false;
+      try { if (env.DB) { await env.DB.prepare('SELECT 1 AS ready').first(); d1 = true; } } catch (error) {
+        console.error('health_d1_check_failed', requestId, String(error));
+      }
+      const assets = !!env.ASSETS && !!env.ASSET_PUBLIC_BASE_URL;
+      const backups = !!env.BACKUPS;
+      const status = !d1 ? 'unavailable' : (assets && backups ? 'healthy' : 'degraded');
+      return withCors(request, env, json({ ok: d1, status, service: 'the-ark-spa-api', dependencies: { d1, assets, backups }, requestId }, d1 ? 200 : 503));
     }
     if (!env.DB) return withCors(request, env, json({ ok: false, error: 'Database binding is not configured.', requestId }, 503));
 
