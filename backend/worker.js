@@ -76,6 +76,50 @@ async function hmac(secret, value) {
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value)));
 }
 
+function githubRepo(env) {
+  const owner = String(env.GITHUB_OWNER || 'The-Ark-Spa');
+  const repo = String(env.GITHUB_REPO || 'the-ark-spa');
+  const branch = String(env.GITHUB_BRANCH || 'main');
+  return { owner, repo, branch };
+}
+function githubRawUrl(env, repoPath) {
+  const { owner, repo, branch } = githubRepo(env);
+  return 'https://raw.githubusercontent.com/' + owner + '/' + repo + '/' + encodeURIComponent(branch) + '/' + repoPath.split('/').map(encodeURIComponent).join('/');
+}
+function githubApiHeaders(env) {
+  if (!env.GITHUB_TOKEN) throw new Error('GitHub storage token is not configured.');
+  return { Authorization: 'Bearer ' + env.GITHUB_TOKEN, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+}
+function bytesToBase64(bytes) {
+  const data = new Uint8Array(bytes);
+  let binary = '';
+  for (let i = 0; i < data.length; i += 0x8000) binary += String.fromCharCode(...data.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+async function githubContents(env, repoPath) {
+  const { owner, repo, branch } = githubRepo(env);
+  const url = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + repoPath.split('/').map(encodeURIComponent).join('/') + '?ref=' + encodeURIComponent(branch);
+  const response = await fetch(url, { headers: githubApiHeaders(env) });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('GitHub file lookup failed (' + response.status + ').');
+  return response.json();
+}
+async function githubPut(env, repoPath, bytes, message, contentType) {
+  const { owner, repo, branch } = githubRepo(env);
+  const url = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + repoPath.split('/').map(encodeURIComponent).join('/');
+  const response = await fetch(url, { method: 'PUT', headers: { ...githubApiHeaders(env), 'Content-Type': 'application/json' }, body: JSON.stringify({ message, content: bytesToBase64(bytes), branch }) });
+  if (!response.ok) throw new Error('GitHub image upload failed (' + response.status + '): ' + (await response.text()).slice(0, 300));
+  return response.json();
+}
+async function githubDelete(env, repoPath) {
+  const existing = await githubContents(env, repoPath);
+  if (!existing) return false;
+  const { owner, repo, branch } = githubRepo(env);
+  const url = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + repoPath.split('/').map(encodeURIComponent).join('/');
+  const response = await fetch(url, { method: 'DELETE', headers: { ...githubApiHeaders(env), 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Remove Ark Spa uploaded image', sha: existing.sha, branch }) });
+  if (!response.ok) throw new Error('GitHub image delete failed (' + response.status + ').');
+  return true;
+}
 async function digestHex(value) {
   return bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
 }
@@ -194,21 +238,19 @@ export default {
     }
 
     if (path.startsWith('/assets/') && method === 'GET') {
-      if (!env.ASSETS) return new Response('Asset storage unavailable.', { status: 503, headers: { 'Cache-Control': 'no-store' } });
       try {
         const objectKey = decodeURIComponent(path.slice('/assets/'.length));
         const parts = objectKey.split('/');
         if (parts.length !== 4 || parts[0] !== 'ark' || !['gallery','hero','logo'].includes(parts[1]) || !/^[0-9]{4}$/.test(parts[2]) || !/^[A-Za-z0-9._-]+$/.test(parts[3]) || objectKey.includes('..')) {
           return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
         }
-        const object = await env.ASSETS.get(objectKey);
-        if (!object) return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
-        const headers = new Headers();
-        object.writeHttpMetadata(headers);
+        const rawUrl = githubRawUrl(env, 'uploads/' + objectKey);
+        const upstream = await fetch(rawUrl, { cf: { cacheTtl: 86400, cacheEverything: true } });
+        if (!upstream.ok) return new Response('Not found.', { status: upstream.status === 404 ? 404 : 503, headers: { 'Cache-Control': 'no-store' } });
+        const headers = new Headers(upstream.headers);
         headers.set('Cache-Control', 'public, max-age=31536000, immutable');
         headers.set('X-Content-Type-Options', 'nosniff');
-        if (object.httpEtag) headers.set('ETag', object.httpEtag);
-        return new Response(object.body, { headers });
+        return new Response(upstream.body, { status: 200, headers });
       } catch (error) {
         console.error('public_asset_read_failed', requestId, String(error));
         return new Response('Asset unavailable.', { status: 503, headers: { 'Cache-Control': 'no-store' } });
@@ -220,10 +262,9 @@ export default {
       try { if (env.DB) { await env.DB.prepare('SELECT 1 AS ready').first(); d1 = true; } } catch (error) {
         console.error('health_d1_check_failed', requestId, String(error));
       }
-      const assets = !!env.ASSETS && !!env.ASSET_PUBLIC_BASE_URL;
-      const backups = !!env.BACKUPS;
-      const status = !d1 ? 'unavailable' : (assets && backups ? 'healthy' : 'degraded');
-      return withCors(request, env, json({ ok: d1, status, service: 'the-ark-spa-api', dependencies: { d1, assets, backups }, requestId }, d1 ? 200 : 503));
+      const github = !!env.GITHUB_TOKEN && !!env.GITHUB_OWNER && !!env.GITHUB_REPO;
+      const status = !d1 ? 'unavailable' : (github ? 'healthy' : 'degraded');
+      return withCors(request, env, json({ ok: d1, status, service: 'the-ark-spa-api', dependencies: { d1, imageStorage: github, backups: d1 }, requestId }, d1 ? 200 : 503));
     }
     if (!env.DB) return withCors(request, env, json({ ok: false, error: 'Database binding is not configured.', requestId }, 503));
 
@@ -416,9 +457,8 @@ export default {
       }
 
       if (path === '/api/admin/backups' && method === 'POST') {
-        if (!env.BACKUPS) return withCors(request, env, json({ ok: false, error: 'Private backup storage is not configured.', requestId }, 503));
         const backupId = crypto.randomUUID();
-        const objectKey = 'ark-backups/' + new Date().toISOString().slice(0, 10) + '/' + backupId + '.json';
+        const objectKey = 'd1:' + backupId;
         try {
           const [content, appointments, assets] = await Promise.all([
             env.DB.prepare('SELECT data,updated_at FROM site_content WHERE id = 1').first(),
@@ -438,13 +478,11 @@ export default {
           const encoded = JSON.stringify(snapshot);
           const bytes = new TextEncoder().encode(encoded);
           const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
-          await env.DB.prepare("INSERT INTO backup_runs (id,status,object_key,content_sha256,byte_length,notes) VALUES (?,'started',?,?,?,'')").bind(backupId, objectKey, checksum, bytes.byteLength).run();
-          await env.BACKUPS.put(objectKey, bytes, { httpMetadata: { contentType: 'application/json', cacheControl: 'private, no-store' }, customMetadata: { backupId, sha256: checksum } });
-          const stored = await env.BACKUPS.get(objectKey);
-          if (!stored) throw new Error('Backup object read-back failed.');
-          const storedBytes = await stored.arrayBuffer();
-          const storedChecksum = bytesToHex(await crypto.subtle.digest('SHA-256', storedBytes));
-          if (storedChecksum !== checksum || storedBytes.byteLength !== bytes.byteLength) throw new Error('Backup checksum verification failed.');
+          await env.DB.prepare("INSERT INTO backup_runs (id,status,object_key,content_sha256,byte_length,snapshot_json,notes) VALUES (?,'started',?,?,?,?,'')").bind(backupId, objectKey, checksum, bytes.byteLength, encoded).run();
+          const stored = await env.DB.prepare('SELECT snapshot_json FROM backup_runs WHERE id = ?').bind(backupId).first();
+          if (!stored || stored.snapshot_json !== encoded) throw new Error('Backup read-back verification failed.');
+          const storedChecksum = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stored.snapshot_json)));
+          if (storedChecksum !== checksum) throw new Error('Backup checksum verification failed.');
           await env.DB.batch([
             env.DB.prepare("UPDATE backup_runs SET status='verified',verified_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(backupId),
             env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'backup.create', backupId)
@@ -468,7 +506,7 @@ export default {
       }
 
       if (path === '/api/admin/assets' && method === 'POST') {
-        if (!env.ASSETS || !env.ASSET_PUBLIC_BASE_URL) return withCors(request, env, json({ ok: false, error: 'Image storage is not configured yet.', requestId }, 503));
+        if (!env.GITHUB_TOKEN) return withCors(request, env, json({ ok: false, error: 'GitHub image storage is not configured yet.', requestId }, 503));
         let objectKey = '';
         try {
           const form = await request.formData();
@@ -482,9 +520,9 @@ export default {
           objectKey = 'ark/' + purpose + '/' + new Date().getUTCFullYear() + '/' + crypto.randomUUID() + '.' + extension;
           const bytes = await file.arrayBuffer();
           const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
-          await env.ASSETS.put(objectKey, bytes, { httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' }, customMetadata: { purpose, originalName: String(file.name || '').slice(0, 120), sha256: checksum } });
-          const base = String(env.ASSET_PUBLIC_BASE_URL).replace(/\/+$/, '') + '/';
-          const publicUrl = new URL(objectKey.split('/').map(encodeURIComponent).join('/'), base).toString();
+          const repoPath = 'uploads/' + objectKey;
+          await githubPut(env, repoPath, bytes, 'Add Ark Spa ' + purpose + ' image', file.type);
+          const publicUrl = githubRawUrl(env, repoPath);
           await env.DB.batch([
             env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by) VALUES (?, ?, ?, ?, ?, ?)')
               .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e),
@@ -494,7 +532,7 @@ export default {
           return withCors(request, env, json({ ok: true, asset: { object_key: objectKey, public_url: publicUrl, content_type: file.type, byte_length: file.size, purpose }, requestId }, 201));
         } catch (error) {
           if (objectKey) {
-            try { await env.ASSETS.delete(objectKey); } catch (cleanupError) { console.error('asset_orphan_cleanup_failed', requestId, String(cleanupError)); }
+            try { await githubDelete(env, 'uploads/' + objectKey); } catch (cleanupError) { console.error('asset_orphan_cleanup_failed', requestId, String(cleanupError)); }
             try { await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run(); } catch (metadataCleanupError) { console.error('asset_metadata_cleanup_failed', requestId, String(metadataCleanupError)); }
           }
           console.error('asset_upload_failed', requestId, String(error));
@@ -506,13 +544,13 @@ export default {
       const assetKeyPath = path.startsWith(assetPrefix) ? path.slice(assetPrefix.length) : '';
       if (assetKeyPath && method === 'DELETE') {
         try {
-          if (!env.ASSETS) return withCors(request, env, json({ ok: false, error: 'Image storage is not configured.', requestId }, 503));
+          if (!env.GITHUB_TOKEN) return withCors(request, env, json({ ok: false, error: 'GitHub image storage is not configured.', requestId }, 503));
           const objectKey = decodeURIComponent(assetKeyPath);
           const keyParts = objectKey.split('/');
           if (keyParts.length !== 4 || keyParts[0] !== 'ark' || !['gallery','hero','logo'].includes(keyParts[1]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[2]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[3]) || objectKey.includes('..')) return withCors(request, env, json({ ok: false, error: 'Invalid asset key.', requestId }, 400));
           const existing = await env.DB.prepare('SELECT object_key FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
           if (!existing) return withCors(request, env, json({ ok: false, error: 'Asset not found.', requestId }, 404));
-          await env.ASSETS.delete(objectKey);
+          await githubDelete(env, 'uploads/' + objectKey);
           await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run();
           await audit(env, session.e, 'asset.delete', objectKey, requestId);
           return withCors(request, env, json({ ok: true, requestId }));
