@@ -1,0 +1,348 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Book Appointment — The Ark Spa & Salon</title><link rel="stylesheet" href="style.css?v=natural-spa-3"><link rel="preload" as="image" href="assets/ark-logo-reference.png"><script src="ark-api-config.worker.js"></script><script src="ark-api-client.js"></script><script src="app.worker.js"></script><style>
+*{-webkit-tap-highlight-color:transparent!important}html,body{ -webkit-tap-highlight-color:transparent!important }button,[role="button"],a,select,input{ -webkit-tap-highlight-color:transparent!important; -webkit-touch-callout:none }
+.offer-picker{position:relative}.offer-select-btn{width:100%;display:flex;align-items:center;justify-content:space-between;padding:13px 14px;border:1px solid rgba(180,145,65,.35);border-radius:10px;background:#fff;color:#555;font:inherit;text-align:left;cursor:pointer}.offer-menu{display:none;position:absolute;z-index:50;left:0;right:0;top:calc(100% + 5px);padding:6px;background:#fff;border:1px solid rgba(180,145,65,.3);border-radius:10px;box-shadow:0 10px 25px rgba(0,0,0,.12)}.offer-menu.open{display:block}.offer-choice{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 10px;border:0;border-radius:7px;background:transparent;color:#333;font:inherit;text-align:left;cursor:pointer}.offer-choice:hover{background:rgba(180,145,65,.09)}.offer-radio{font-size:20px;line-height:1}.offer-default{color:#666}
+.form .field-locked{opacity:.55;pointer-events:none}.rate-hidden{display:none!important}.booking-box{max-width:620px;overflow:visible;max-height:none}.booking-box .form{gap:12px}.booking-box .form input,.booking-box .form select{padding:11px 12px;border-radius:10px}.booking-box #phone{width:205px;max-width:100%;box-sizing:border-box}.booking-box .offer-select-btn{padding:0 12px;height:42px;min-height:42px;border-radius:10px}.booking-box .two{gap:12px}.compact-person-row select{width:100%!important;max-width:none!important}.booking-box .guest-card{padding:13px!important;border-radius:14px!important}.therapy-picker{position:relative;-webkit-tap-highlight-color:transparent}.therapy-picker *{-webkit-tap-highlight-color:transparent;-webkit-appearance:none;appearance:none}.therapy-picker .therapy-click,.therapy-picker .therapy-click:focus,.therapy-picker .therapy-click:focus-visible,.therapy-picker .therapy-click:active,.therapy-picker .therapy-click:hover{-webkit-tap-highlight-color:transparent!important;-webkit-focus-ring-color:transparent!important;outline:0!important;outline-color:transparent!important;box-shadow:none!important;background-image:none!important;user-select:none!important;-webkit-user-select:none!important;touch-action:manipulation}.therapy-select-btn{width:100%;display:flex;align-items:center;justify-content:space-between;padding:11px 12px;border:1px solid rgba(180,145,65,.35);border-radius:10px;background:#fff;color:#555;font:inherit;text-align:left;cursor:pointer}.therapy-menu:has(.therapy-services.open) .therapy-group{display:none}.therapy-menu:has(.therapy-services.open) .therapy-group:has(.therapy-services.open){display:block}.therapy-menu.category-active .therapy-group.category-hidden{display:none}.therapy-menu.category-active .therapy-group:not(.category-hidden){display:block}.therapy-menu{display:none;position:absolute;z-index:100;left:0;right:auto;top:calc(100% + 5px);width:max-content;min-width:100%;max-width:calc(100vw - 40px);padding:6px;background:#fff;border:1px solid rgba(180,145,65,.3);border-radius:10px;box-shadow:0 10px 25px rgba(0,0,0,.12);max-height:none;overflow:visible}.therapy-menu.open{display:block}.therapy-category{width:100%;display:flex;align-items:center;justify-content:space-between;padding:11px 10px;border:0;border-radius:7px;background:transparent;color:#333;font:inherit;text-align:left;cursor:pointer}.therapy-category:hover,.therapy-service:hover{background:rgba(180,145,65,.09)}.therapy-category .arrow{position:static;top:auto;left:auto;right:auto;transform:none;width:auto;height:auto;border:0;border-radius:0;background:transparent;color:inherit;padding:0;margin:0;font-size:22px;font-weight:700;line-height:1;transition:transform .15s;box-shadow:none;display:inline-block;min-width:18px;text-align:center}.therapy-category.expanded .arrow{transform:rotate(90deg)}.therapy-services{display:none;padding:0 0 4px 12px}.therapy-services.open{display:block}.therapy-service{width:100%;display:block;padding:9px 10px;border:0;border-radius:7px;background:transparent;color:#444;font:inherit;text-align:left;cursor:pointer}.therapy-service.selected{background:rgba(180,145,65,.12);font-weight:600;color:var(--green);outline:none}.therapy-click:focus,.therapy-click:focus-visible{outline:none;box-shadow:none}.therapy-picker .therapy-click{display:block;-webkit-tap-highlight-color:transparent!important;-webkit-focus-ring-color:transparent!important;outline:0!important;box-shadow:none!important}.therapy-picker.field-locked{opacity:.55;pointer-events:none}</style></head><body><header><a class="brand" href="index.html"><img class="brand-logo" data-brand-logo alt="The Ark Spa & Salon"><span><b>The Ark Spa & Salon</b><small>SPA & SALON</small></span></a><nav class="desktop-nav"><a href="index.html">Home</a><a href="services.html">Services</a><a href="offers.html">Offers</a><a href="gallery.html">Gallery</a><a href="#" onclick="openBookingChooser();return false">Book Appointment</a></nav><button class="menu-btn" onclick="toggleMobileNav()">☰</button></header><div id="mobileDrawer" class="mobile-nav-drawer"><a href="index.html">Home</a><a href="services.html">Services</a><a href="offers.html">Offers</a><a href="gallery.html">Gallery</a><a href="#" onclick="openBookingChooser();return false">Book Appointment</a></div><section class="page-hero"><h1>Book Your Appointment</h1><p id="intro">Choose a therapy, an active offer if applicable, and your preferred date and time.</p></section><section class="section"><div class="modal-box booking-box"><form class="form" id="bookingForm"><div class="two compact-person-row"><div><label>Full Name <span style="font-weight:400;font-size:12px">(Optional)</span></label><input name="name"></div><div><label>Mobile Number * (+91)</label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" minlength="10" maxlength="13" required placeholder="10-digit mobile number"></div></div><div class="two compact-person-row"><div><label>Number of People *</label><select id="guestCount" name="guestCount" required><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div><div id="offerFieldWrap" class="field-locked"></div></div><div id="guestSelections"></div><div id="totalRate" class="admin-note" style="margin-top:14px;font-size:16px;display:none"></div><div class="two"><div><label>Preferred Date *</label><input id="date" type="date" name="date" required disabled></div><div><label>Preferred Time *</label><input id="time" type="time" name="time" required disabled></div></div><button id="submitAppointment" class="btn primary" type="submit">Submit Appointment</button><div id="msg" class="status"></div></form><div id="waDirect" style="margin-top:15px;text-align:center"></div></div></section><footer><div class="footer-main"><div><h3>The Ark Spa & Salon</h3><p data-address></p><div style="margin-top:15px"><b style="color:var(--gold2);font-size:12px;letter-spacing:1px">FOLLOW US</b><div class="socials" style="margin-top:8px"><div data-socials></div></div></div></div><div><h3>Explore</h3><a href="index.html">Home</a><a href="services.html">Services</a><a href="offers.html">Offers</a><a href="gallery.html">Gallery</a></div><div><h3>Information</h3><a href="contact.html">Contact</a><a href="admin.html">Admin Login</a></div></div><div class="footer-bottom"><span>© 2026 The Ark Spa & Salon. All Rights Reserved.</span></div></footer><script>
+const qs=new URLSearchParams(location.search);
+let selectedOfferName=qs.get('offer')||'', selectedServiceName=qs.get('service')||'';
+if(selectedOfferName||selectedServiceName){history.replaceState({},document.title,location.pathname+location.hash);}
+const phoneEl=document.getElementById('phone'), guestCountEl=document.getElementById('guestCount'), guestSelections=document.getElementById('guestSelections'), submitEl=document.getElementById('submitAppointment'), msgEl=document.getElementById('msg'), dateEl=document.getElementById('date'), timeEl=document.getElementById('time');
+function itemByName(n){return (arkData.menu||[]).find(x=>x.name===n)}
+function normalizedPhone(){const raw=String(phoneEl.value||'').trim(),digits=raw.replace(/\D/g,'');return digits.startsWith('91')&&digits.length===12?digits.slice(2):digits}
+function validPhone(){return /^[6-9][0-9]{9}$/.test(normalizedPhone())}
+function escapeValue(v){return escapeAttr(v)}
+function getActiveOffer(title){
+  const wanted=String(title||'').trim();
+  if(wanted.startsWith('__offerindex__')){
+    const i=Number(wanted.slice('__offerindex__'.length));
+    const active=getActiveOffers();
+    return Number.isInteger(i)&&i>=0?active[i]||null:null;
+  }
+  return (arkData.offers||[]).find(x=>x.active&&String(x.title||'').trim()===wanted) || null;
+}
+function eligibleServicesForOffer(offer){
+  const o=offer&&typeof offer==='object'?offer:getActiveOffer(offer);
+  const menu=arkData.menu||[];
+  if(!o)return menu;
+  const scope=o.scopeType||o.scope||'all';
+  if(scope==='all'||scope==='all-menu-rates')return menu;
+  if(scope==='category')return menu.filter(x=>x.category===o.category);
+  if(scope==='services'){
+    const names=new Set((o.serviceNames||[]).map(x=>String(x||'').trim()));
+    return menu.filter(x=>names.has(String(x.name||'').trim()));
+  }
+  return menu;
+}
+function offersForService(name){return name?getApplicableOffers(name):getActiveOffers()}
+function availableOffers(service){return offersForService(service).filter(o=>(arkData.menu||[]).some(x=>offerApplies(o,x)))}
+function offerLabel(o){if(o.type==='percentage')return String(o.percent)+'% OFF';if(o.type==='special')return formatMoney(o.rate);return ''}
+function offerFieldHtml(selected,service,cls='offer',id='offer'){
+  const os=availableOffers(service);
+  if(!os.length)return '';
+  const wrapId=id||('offerField_'+Math.random().toString(36).slice(2,8));
+  const selectId=cls==='offer'?'offer':('offer_'+wrapId);
+  const safeSelected=selected||'';
+  const display=safeSelected?(getActiveOffer(safeSelected)?.type==='percentage'?'Discount '+getActiveOffer(safeSelected).percent+'% OFF':getActiveOffer(safeSelected)?.type==='special'?'Special Offer '+formatMoney(getActiveOffer(safeSelected).rate):(getActiveOffer(safeSelected)?.title||safeSelected)):'Select';
+  const options=os.map(o=>`<button type="button" class="offer-choice" data-offer="${escapeAttr(o.title||'')}" onclick="pickOffer(this,'${escapeAttr(selectId)}')"><span>${escapeHtml(o.type==='percentage'?'Discount '+String(o.percent)+'% OFF':o.type==='special'?'Special Offer '+formatMoney(o.rate):(o.title||'Offer'))}</span><span class="offer-radio">○</span></button>`).join('');
+  return '<div class="offer-field" id="'+escapeAttr(wrapId)+'">'+(cls==='offer'?'<label>Offer</label>':'')+'<div class="offer-picker"><button type="button" class="offer-select-btn" onclick="toggleOfferPicker(\''+escapeAttr(wrapId)+'\')"><span>'+escapeHtml(display)+'</span><span>▼</span></button><div class="offer-menu"><button type="button" class="offer-choice offer-default" onclick="pickOffer(this,\''+escapeAttr(selectId)+'\')"><span>Select</span><span></span></button>'+options+'</div></div><select class="'+escapeAttr(cls)+'" id="'+escapeAttr(selectId)+'" style="display:none">'+offerOptions(safeSelected,service)+'</select></div>';
+}
+function toggleOfferPicker(id){
+  document.querySelectorAll('.offer-field .offer-menu.open').forEach(x=>{if(x.closest('.offer-field')?.id!==id)x.classList.remove('open')});
+  document.querySelector('#'+CSS.escape(id)+' .offer-menu')?.classList.toggle('open');
+}
+function pickOffer(btn,selectId){
+  const sel=document.getElementById(selectId);
+  if(!sel)return;
+  sel.value=btn.classList.contains('offer-default')?'':(btn.dataset.offer||'');
+  const field=sel.closest('.offer-field');
+  const display=field?.querySelector('.offer-select-btn span');
+  if(display)display.textContent=sel.value?(getActiveOffer(sel.value)?.type==='percentage'?'Discount '+getActiveOffer(sel.value).percent+'% OFF':getActiveOffer(sel.value)?.type==='special'?'Special Offer '+formatMoney(getActiveOffer(sel.value).rate):(getActiveOffer(sel.value)?.title||'Offer')):'Select';
+  field?.querySelector('.offer-menu')?.classList.remove('open');
+  sel.dispatchEvent(new Event('change',{bubbles:true}));
+}
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.offer-picker'))document.querySelectorAll('.offer-menu.open').forEach(x=>x.classList.remove('open'));
+});
+function serviceOptions(selected,offer){
+  const o=getActiveOffer(offer);
+  const items=o?eligibleServicesForOffer(o):(arkData.menu||[]);
+  const validSelected=items.some(x=>x.name===selected)?selected:'';
+  return '<option value="">Select therapy</option>'+items.map(x=>`<option value="${escapeValue(x.name)}" ${x.name===validSelected?'selected':''}>${escapeHtml(x.name)} — ${escapeHtml(x.category)}</option>`).join('');
+}
+function therapyPickerHtml(selected,offer,id){
+  const o=getActiveOffer(offer);
+  const items=o?eligibleServicesForOffer(o):(arkData.menu||[]);
+  const validSelected=items.some(x=>x.name===selected)?selected:'';
+  const categories=[...new Set(items.map(x=>String(x.category||'Other').trim()||'Other'))];
+  const groups=categories.map(cat=>{
+    const services=items.filter(x=>(String(x.category||'Other').trim()||'Other')===cat);
+    const open=false;
+    return '<div class="therapy-group"><div role="button" tabindex="0" class="therapy-click therapy-category '+(open?'expanded':'')+'" onclick="toggleTherapyCategory(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();toggleTherapyCategory(this)}"><span>'+escapeHtml(cat)+'</span><span class="arrow" aria-hidden="true">›</span></div><div class="therapy-services '+(open?'open':'')+'">'+services.map(x=>'<div role="button" tabindex="0" class="therapy-click therapy-service '+(x.name===validSelected?'selected':'')+'" data-service="'+escapeAttr(x.name||'')+'" onclick="pickTherapy(this,\''+escapeAttr(id)+'\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();pickTherapy(this,\''+escapeAttr(id)+'\')}">'+escapeHtml(x.name||'')+'</div>').join('')+'</div></div>';
+  }).join('');
+  const display=validSelected||'Select therapy';
+  return '<div class="therapy-picker" id="'+escapeAttr(id)+'"><div role="button" tabindex="0" class="therapy-click therapy-select-btn" onclick="toggleTherapyPicker(\''+escapeAttr(id)+'\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();toggleTherapyPicker(\''+escapeAttr(id)+'\')}"><span>'+escapeHtml(display)+'</span><span>▼</span></div><div class="therapy-menu">'+(groups||'<div style="padding:10px;color:#777">No therapies available</div>')+'</div></div>';
+}
+function toggleTherapyPicker(id){
+  document.querySelectorAll('.therapy-menu.open').forEach(x=>{if(x.closest('.therapy-picker')?.id!==id)x.classList.remove('open')});
+  document.querySelector('#'+CSS.escape(id)+' .therapy-menu')?.classList.toggle('open');
+}
+function toggleTherapyCategory(btn){
+  const group=btn.closest('.therapy-group');
+  const sub=group?.querySelector('.therapy-services');
+  const menu=group?.closest('.therapy-menu');
+  if(!group||!sub||!menu)return;
+  const isOpen=sub.classList.contains('open');
+  menu.classList.toggle('category-active',!isOpen);
+  menu.querySelectorAll('.therapy-group').forEach(other=>{
+    const otherBtn=other.querySelector('.therapy-category');
+    const otherSub=other.querySelector('.therapy-services');
+    const active=other===group&&!isOpen;
+    other.classList.toggle('category-hidden',!active&&!isOpen);
+    if(otherBtn)otherBtn.classList.toggle('expanded',active);
+    if(otherSub)otherSub.classList.toggle('open',active);
+  });
+}
+function pickTherapy(btn,id){
+  const picker=document.getElementById(id), select=picker?.parentElement?.querySelector('select');
+  if(!picker||!select)return;
+  const name=btn.dataset.service||'';
+  select.value=name;
+  const display=picker.querySelector('.therapy-select-btn span');
+  if(display)display.textContent=name||'Select therapy';
+  picker.querySelectorAll('.therapy-service.selected').forEach(x=>x.classList.remove('selected'));
+  btn.classList.add('selected');
+  picker.querySelector('.therapy-menu')?.classList.remove('open');
+  select.dispatchEvent(new Event('change',{bubbles:true}));
+}
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.therapy-picker'))document.querySelectorAll('.therapy-menu.open').forEach(x=>x.classList.remove('open'));
+});
+function offerOptions(selected,service){let os=availableOffers(service);if(selected&&!os.some(o=>o.title===selected)){const forced=getActiveOffer(selected);if(forced&&availableOffers(service).some(o=>o.title===forced.title))os=[forced,...os]}const seen=new Set();os=os.filter(o=>{const k=o.title||'';if(seen.has(k))return false;seen.add(k);return true});return '<option value="" '+(!selected?'selected':'')+'></option>'+os.map(o=>`<option value="${escapeValue(o.title||'')}" ${o.title===selected?'selected':''}>${escapeHtml(o.title||'Offer')} — ${escapeHtml(offerLabel(o))}</option>`).join('')}
+function durationOptions(service,offer){const s=itemByName(service);if(!s)return '<option value="">Select after choosing a service</option>';const o=getActiveOffer(offer);let vals=(o&&o.type==='special'&&o.duration)?[o.duration]:String(s.duration||'').split('/').map(x=>x.trim()).filter(Boolean);if(s.name==='Foot Acupressure'&&!o)vals=['30 Minutes','60 Minutes'];const label=v=>{const raw=String(v??'').trim();if(!raw)return '';if(/^\d+(?:\.\d+)?$/.test(raw))return raw+' Minutes';const m=raw.match(/^(\d+(?:\.\d+)?)\s*(?:min|mins|minute|minutes)$/i);if(m)return m[1]+' Minutes';return raw};return vals.map((v,i)=>`<option value="${escapeValue(v)}" ${i===0?'selected':''}>${escapeHtml(label(v))}</option>`).join('')}
+function rateForDuration(item,duration){if(!item)return null;const rates=parseRateParts(item.rate||''),durations=String(item.duration||'').split('/').map(x=>x.trim()).filter(Boolean);if(!rates.length)return null;let i=durations.indexOf(String(duration||'').trim());if(i<0)i=0;const r=rates[Math.min(i,rates.length-1)];return r?.value??null}
+function discountedPrice(item,duration,pct){const r=rateForDuration(item,duration);if(r===null)return null;const d=Math.max(0,Math.min(100,Number(pct)||0));return Math.round(r*(100-d))/100}
+function renderGuestSelections(){
+  const n=Math.max(1,Math.min(4,Number(guestCountEl.value)||1));
+  if(n===1){
+    const unlocked=validPhone(); const offerWrap=document.getElementById('offerFieldWrap'); if(offerWrap){offerWrap.className=unlocked?'':'field-locked'; offerWrap.innerHTML=offerFieldHtml(selectedOfferName,selectedServiceName,'offer','offerField');} guestSelections.innerHTML='<div class="two compact-service-row"><div class="'+(unlocked?'':'field-locked')+'"><label>Therapy *</label><select id="service" required style="display:none" '+(unlocked?'':'disabled')+'>'+serviceOptions(selectedServiceName,selectedOfferName)+'</select>'+therapyPickerHtml(selectedServiceName,selectedOfferName,'therapyPickerSingle')+'</div><div class="'+(unlocked?'':'field-locked')+'"><label>Duration *</label><select id="duration" required '+(unlocked?'':'disabled')+'>'+durationOptions(selectedServiceName,selectedOfferName)+'</select></div></div><div id="singleRate" class="admin-note rate-hidden" style="margin-top:8px"></div>';
+    bindSingleEvents();
+    refreshSingleRate();
+    return;
+  }
+  const offerWrap=document.getElementById('offerFieldWrap'); if(offerWrap){offerWrap.className='field-locked'; offerWrap.innerHTML='';} const old=[...guestSelections.querySelectorAll('.guest-card')].map(card=>({service:card.querySelector('.guest-service')?.value||'',offer:card.querySelector('.guest-offer')?.value||'',duration:card.querySelector('.guest-duration')?.value||''}));
+  guestSelections.innerHTML=Array.from({length:n},(_,i)=>{
+    const prev=old[i]||{};
+    const svc=prev.service||(i===0?selectedServiceName:'');
+    const off=prev.offer||(i===0?selectedOfferName:'');
+    const s=itemByName(svc);
+    const vals=(getActiveOffer(off)?.type==='special'&&getActiveOffer(off)?.duration)?[getActiveOffer(off).duration]:(s?String(s.duration||'').split('/').map(x=>x.trim()).filter(Boolean):[]);
+    const dur=prev.duration&&vals.includes(prev.duration)?prev.duration:(vals[0]||'');
+    return '<div class="guest-card" data-guest="'+(i+1)+'" style="margin-top:14px;padding:16px;border:1px solid rgba(180,145,65,.25);border-radius:18px;background:rgba(255,255,255,.35)"><h3 style="margin:0 0 12px;color:var(--green);font-family:Georgia,serif">Person '+(i+1)+'</h3><div class="two"><div><label>Therapy *</label><select class="guest-service" required style="display:none">'+serviceOptions(svc,off)+'</select>'+therapyPickerHtml(svc,off,'therapyPickerGuest'+(i+1))+'</div><div><label>Timing / Duration *</label><select class="guest-duration" required>'+durationOptions(svc,off)+'</select></div></div><div class="guest-offer-wrap" style="margin-top:12px">'+offerFieldHtml(off,svc,'guest-offer','')+'</div><div class="guest-rate admin-note" style="margin-top:8px"></div></div>';
+  }).join('');
+  bindGuestEvents();
+  refreshAllGuestRates();
+}
+function bindSingleEvents(){
+  const service=document.getElementById('service'), offer=document.getElementById('offer'), duration=document.getElementById('duration');
+  service?.addEventListener('change',()=>{
+    const offerEl=offer, currentOffer=getActiveOffer(offerEl?.value);
+    if(currentOffer){
+      const eligible=eligibleServicesForOffer(currentOffer);
+      if(!eligible.some(x=>x.name===service.value)){
+        const first=eligible[0];
+        if(first){
+          service.innerHTML=serviceOptions(first.name,currentOffer.title);
+          service.value=first.name;
+        }
+      }else{
+        service.innerHTML=serviceOptions(service.value,currentOffer.title);
+      }
+      const currentService=service.value;
+      const picker=document.getElementById('therapyPickerSingle');
+      if(picker)picker.outerHTML=therapyPickerHtml(currentService,currentOffer.title,'therapyPickerSingle');
+      document.getElementById('offerFieldWrap').innerHTML=offerFieldHtml(currentOffer.title,service.value,'offer','offerField');
+      bindSingleEvents();
+      const refreshedOffer=document.getElementById('offer');
+      duration.innerHTML=durationOptions(service.value,refreshedOffer?.value||'');
+    }else{
+      const currentService=service.value;
+      const picker=document.getElementById('therapyPickerSingle');
+      if(picker)picker.outerHTML=therapyPickerHtml(currentService,'','therapyPickerSingle');
+      document.getElementById('offerFieldWrap').innerHTML=offerFieldHtml('',service.value,'offer','offerField');
+      const refreshedOffer=document.getElementById('offer');
+      duration.innerHTML=durationOptions(service.value,refreshedOffer?.value||'');
+    }
+    refreshSingleRate();
+    updateSubmitState();
+  });
+  document.getElementById('offer')?.addEventListener('change',()=>{
+    const offer=document.getElementById('offer');
+    const chosen=getActiveOffer(offer.value);
+    service.innerHTML=serviceOptions('',chosen?.title||'');
+    const picker=document.getElementById('therapyPickerSingle');
+    if(picker)picker.outerHTML=therapyPickerHtml('',chosen?.title||'','therapyPickerSingle');
+    duration.innerHTML=durationOptions('',offer.value);
+    refreshSingleRate();
+    updateSubmitState();
+  });
+  duration?.addEventListener('change',()=>{
+    refreshSingleRate();
+    updateSubmitState();
+  });
+}
+function refreshSingleRate(){
+  const service=document.getElementById('service'), offer=document.getElementById('offer'), duration=document.getElementById('duration'), out=document.getElementById('singleRate');
+  if(!service||!offer||!duration||!out)return;
+  const complete=validPhone()&&!!service.value&&!!duration.value&&!!dateEl.value&&!!timeEl.value;
+  if(!complete){out.classList.add('rate-hidden');out.innerHTML='';return;}
+  const s=itemByName(service.value), o=getActiveOffer(offer.value), regular=rateForDuration(s,duration.value);
+  let final=regular, txt=regular===null?'Rate not supplied':formatMoney(regular);
+  if(o?.type==='special'){final=Number(o.rate)||0;txt='Special: '+formatMoney(final)}
+  else if(o?.type==='percentage'){final=discountedPrice(s,duration.value,o.percent);txt=(regular===null||final===null)?'Rate not supplied':formatMoney(final)}
+  out.innerHTML='Final Rate: <b>'+escapeHtml(txt)+'</b>'+(o?'<br>Offer: <b>'+escapeHtml(o.type==='percentage'?'Discount '+o.percent+'% OFF':o.type==='special'?'Special Offer '+formatMoney(o.rate):(o.title||'Offer'))+'</b>':'');
+  out.classList.remove('rate-hidden');
+}
+function bindGuestEvents(){
+  guestSelections.querySelectorAll('.guest-service').forEach(el=>el.addEventListener('change',()=>{
+    const card=el.closest('.guest-card'),offer=card.querySelector('.guest-offer'),currentOffer=getActiveOffer(offer?.value);
+    if(currentOffer){
+      const eligible=eligibleServicesForOffer(currentOffer);
+      if(!eligible.some(x=>x.name===el.value)){
+        const first=eligible[0];
+        if(first){el.innerHTML=serviceOptions(first.name,currentOffer.title);el.value=first.name;}
+      }else{
+        el.innerHTML=serviceOptions(el.value,currentOffer.title);
+      }
+    }else{
+      offer.innerHTML=offerOptions(offer.value,el.value);
+    }
+    card.querySelector('.guest-offer-wrap').innerHTML=offerFieldHtml(offer.value,el.value,'guest-offer','');
+    card.querySelector('.guest-duration').innerHTML=durationOptions(el.value,card.querySelector('.guest-offer')?.value||'');
+    refreshAllGuestRates();updateSubmitState();
+  }));
+  guestSelections.querySelectorAll('.guest-offer').forEach(el=>el.addEventListener('change',()=>{
+    const card=el.closest('.guest-card'),serviceEl=card.querySelector('.guest-service'),chosen=getActiveOffer(el.value);
+    if(chosen){
+      const eligible=eligibleServicesForOffer(chosen);
+      const current=itemByName(serviceEl.value);
+      const keep=current&&eligible.some(x=>x.name===current.name)?current:null;
+      const first=keep||eligible[0];
+      serviceEl.innerHTML=serviceOptions(first?.name||'',chosen.title);
+      if(first)serviceEl.value=first.name;
+      const guestNum=card.dataset.guest||'1';
+      const guestPicker=card.querySelector('.therapy-picker');
+      if(guestPicker)guestPicker.outerHTML=therapyPickerHtml(serviceEl.value,chosen.title,'therapyPickerGuest'+guestNum);
+    }else{
+      serviceEl.innerHTML=serviceOptions(serviceEl.value,el.value);
+      const guestNum=card.dataset.guest||'1';
+      const guestPicker=card.querySelector('.therapy-picker');
+      if(guestPicker)guestPicker.outerHTML=therapyPickerHtml(serviceEl.value,el.value,'therapyPickerGuest'+guestNum);
+    }
+    card.querySelector('.guest-duration').innerHTML=durationOptions(serviceEl.value,el.value);
+    refreshAllGuestRates();updateSubmitState();
+  }));
+  guestSelections.querySelectorAll('.guest-duration').forEach(el=>el.addEventListener('change',()=>{
+    refreshAllGuestRates();
+    updateSubmitState();
+  }));
+}
+function refreshAllGuestRates(){
+  let total=0;
+  guestSelections.querySelectorAll('.guest-card').forEach(card=>{
+    const svc=card.querySelector('.guest-service').value,off=card.querySelector('.guest-offer').value,dur=card.querySelector('.guest-duration').value,s=itemByName(svc),o=getActiveOffer(off),regular=rateForDuration(s,dur);
+    let final=regular,txt=regular===null?'Rate not supplied':formatMoney(regular);
+    if(o?.type==='special'){final=Number(o.rate)||0;txt='Special: '+formatMoney(final)}
+    else if(o?.type==='percentage'){final=discountedPrice(s,dur,o.percent);txt=(regular===null||final===null)?'Rate not supplied':formatMoney(final)+' ('+o.percent+'% OFF)'}
+    if(typeof final==='number'&&isFinite(final))total+=final;
+    const complete=validPhone()&&!!svc&&!!dur&&!!dateEl.value&&!!timeEl.value; const rateEl=card.querySelector('.guest-rate'); if(complete){rateEl.innerHTML='Final Rate: <b>'+escapeHtml(txt)+'</b>'+(o?'<br>Offer: <b>'+escapeHtml(o.type==='percentage'?'Discount '+o.percent+'% OFF':o.type==='special'?'Special Offer '+formatMoney(o.rate):(o.title||'Offer'))+'</b>':'');rateEl.classList.remove('rate-hidden')}else{rateEl.innerHTML='';rateEl.classList.add('rate-hidden')};
+  });
+  const totalEl=document.getElementById('totalRate');
+  const cards=[...guestSelections.querySelectorAll('.guest-card')]; const allComplete=validPhone()&&!!dateEl.value&&!!timeEl.value&&cards.length===Math.max(1,Math.min(4,Number(guestCountEl.value)||1))&&cards.every(c=>c.querySelector('.guest-service')?.value&&c.querySelector('.guest-duration')?.value); if(totalEl){if(allComplete){totalEl.innerHTML='<b>Total: '+formatMoney(total)+'</b>';totalEl.style.display='block'}else{totalEl.innerHTML='';totalEl.style.display='none'}}
+  return total
+}
+function updateSubmitState(){
+  const unlocked=validPhone();
+  const n=Math.max(1,Math.min(4,Number(guestCountEl.value)||1));
+  document.getElementById('offerFieldWrap')?.classList.toggle('field-locked',!unlocked);
+  guestSelections.querySelectorAll('select,button').forEach(el=>{
+    if(el.classList.contains('offer-select-btn') || el.classList.contains('offer-choice')) el.disabled=!unlocked;
+  });
+  const service=document.getElementById('service'), duration=document.getElementById('duration');
+  if(service){service.disabled=!unlocked;service.closest('.field-locked')?.classList.toggle('field-locked',!unlocked)}
+  if(duration){duration.disabled=!unlocked;duration.closest('.field-locked')?.classList.toggle('field-locked',!unlocked)}
+  guestSelections.querySelectorAll('.guest-service,.guest-duration,.guest-offer').forEach(el=>el.disabled=!unlocked);
+  let ready=false;
+  if(n===1){
+    const offer=document.getElementById('offer');
+    ready=unlocked&&!!service?.value&&!!duration?.value;
+  }else{
+    const cards=[...guestSelections.querySelectorAll('.guest-card')];
+    ready=unlocked&&cards.length===n&&cards.every(c=>{
+      return !!c.querySelector('.guest-service')?.value&&!!c.querySelector('.guest-duration')?.value;
+    });
+  }
+  dateEl.disabled=!ready;
+  timeEl.disabled=!ready;
+  const complete=ready&&!!dateEl.value&&!!timeEl.value;
+  submitEl.disabled=!complete;
+  refreshSingleRate();
+  if(n>1)refreshAllGuestRates();
+}
+
+guestCountEl.addEventListener('change',()=>{renderGuestSelections();updateSubmitState()});
+phoneEl.addEventListener('input',()=>{phoneEl.value=phoneEl.value.replace(/[^0-9+]/g,'').replace(/(?!^)\+/g,'').slice(0,13);updateSubmitState();});
+[dateEl,timeEl].forEach(el=>el.addEventListener('change',()=>{updateSubmitState();}));
+document.getElementById('bookingForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const mode=arkData.bookingMode||'both';
+  if(mode==='none'){msgEl.textContent='Booking is currently unavailable.';return}
+  if(!validPhone()){msgEl.textContent='Please enter a valid mobile number first.';phoneEl.focus();return}
+  const n=Math.max(1,Math.min(4,Number(guestCountEl.value)||1));
+  let people=[];
+  if(n===1){
+    const service=document.getElementById('service')?.value||'';
+    const offer=document.getElementById('offer')?.value||'';
+    const duration=document.getElementById('duration')?.value||'';
+    if(!service||!duration){msgEl.textContent='Please select therapy and duration.';return}
+    const s=itemByName(service), o=getActiveOffer(offer), regular=rateForDuration(s,duration);
+    let final=regular,offerRate='',offerPercent='';
+    if(o?.type==='special'){final=Number(o.rate)||0;offerRate=o.rate}
+    else if(o?.type==='percentage'){final=discountedPrice(s,duration,o.percent);offerPercent=o.percent}
+    people=[{person:1,service,offer,duration,regularRate:regular===null?'':formatMoney(regular),finalPrice:final===null?'':formatMoney(final),offerType:o?.type||'',offerRate,offerPercent}];
+  }else{
+    const cards=[...guestSelections.querySelectorAll('.guest-card')];
+    if(cards.length!==n||cards.some(c=>!c.querySelector('.guest-service').value||!c.querySelector('.guest-duration').value)){
+      msgEl.textContent='Please select therapy and duration for every person.';return
+    }
+    people=cards.map((card,i)=>{
+      const service=card.querySelector('.guest-service').value;
+      const offer=card.querySelector('.guest-offer').value;
+      const duration=card.querySelector('.guest-duration').value;
+      const s=itemByName(service), o=getActiveOffer(offer), regular=rateForDuration(s,duration);
+      let final=regular,offerRate='',offerPercent='';
+      if(o?.type==='special'){final=Number(o.rate)||0;offerRate=o.rate}
+      else if(o?.type==='percentage'){final=discountedPrice(s,duration,o.percent);offerPercent=o.percent}
+      return {person:i+1,service,offer,duration,regularRate:regular===null?'':formatMoney(regular),finalPrice:final===null?'':formatMoney(final),offerType:o?.type||'',offerRate,offerPercent};
+    });
+  }
+  const total=people.reduce((sum,p)=>sum+(parseFloat(String(p.finalPrice).replace(/[^0-9.]/g,''))||0),0);
+  const d=Object.fromEntries(new FormData(e.target).entries());
+  const data={
+    name:d.name||'',phone:d.phone||'',guestCount:people.length,people,
+    service:people.map(p=>'Person '+p.person+': '+p.service+' ('+p.duration+')').join(' | '),
+    offer:people.map(p=>p.offer||'Regular').join(' | '),
+    selectedDuration:people.map(p=>p.duration).join(' | '),
+    regularRate:people.map(p=>p.regularRate).join(' | '),
+    finalPrice:formatMoney(total),totalAmount:total,status:'Pending',date:d.date,time:d.time,createdAt:new Date().toISOString()
+  };
+  try{
+    await window.arkApi.createAppointment(data);
+    msgEl.textContent='✓ Appointment request received. We will confirm it with you.';
+    e.target.reset();guestCountEl.value='1';selectedOfferName='';selectedServiceName='';
+    renderGuestSelections();updateSubmitState();
+  }catch(err){
+    console.error(err);
+    msgEl.textContent='Could not save online right now. Please use WhatsApp Booking.'
+  }
+});
+async function init(){await initSite();const mode=arkData.bookingMode||'both';if(mode==='whatsapp'){document.getElementById('bookingForm').classList.add('hidden');waDirect.innerHTML='<button class="btn gold" onclick="wa(\'Hello The Ark Spa & Salon, I would like to book an appointment.\')">Open WhatsApp Booking</button>';intro.textContent='WhatsApp booking is enabled. You can open WhatsApp directly.'}else if(mode==='none'){document.getElementById('bookingForm').classList.add('hidden');intro.textContent='Online booking is currently unavailable. Please call or WhatsApp The Ark Spa & Salon.'}renderGuestSelections();updateSubmitState()}init();
+</script></body></html>
