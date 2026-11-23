@@ -287,10 +287,25 @@ export default {
           if (!data || typeof data !== 'object' || Array.isArray(data)) return withCors(request, env, json({ ok: false, error: 'Site content must be a JSON object.', requestId }, 400));
           const encoded = JSON.stringify(data);
           if (encoded.length > MAX_BODY_BYTES) return withCors(request, env, json({ ok: false, error: 'Site content is too large.', requestId }, 413));
-          await env.DB.prepare(`INSERT INTO site_content (id,data,updated_at) VALUES (1,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-            ON CONFLICT(id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at`).bind(encoded).run();
-          await audit(env, session.e, 'site_content.write', 'site_content:1', requestId);
-          return withCors(request, env, json({ ok: true, requestId }));
+          const current = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (current && !body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'A content version is required to prevent overwriting newer edits.', requestId }, 428));
+          }
+          if (current && body.expectedUpdatedAt !== current.updated_at) {
+            return withCors(request, env, json({ ok: false, error: 'Content changed since it was loaded. Refresh before saving.', updatedAt: current.updated_at, requestId }, 409));
+          }
+          if (!current && body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'The content record changed. Refresh before saving.', requestId }, 409));
+          }
+          const updatedAt = new Date().toISOString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO site_content (id,data,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at').bind(encoded, updatedAt),
+            env.DB.prepare('INSERT INTO site_content_revisions (data,actor,request_id) VALUES (?,?,?)').bind(encoded, session.e, requestId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'site_content.write', 'site_content:1')
+          ]);
+          const saved = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (!saved || saved.data !== encoded) throw new Error('Read-back verification failed.');
+          return withCors(request, env, json({ ok: true, data: JSON.parse(saved.data), updatedAt: saved.updated_at, requestId }));
         } catch (error) {
           console.error('site_content_write_failed', requestId, String(error));
           return withCors(request, env, json({ ok: false, error: 'Site content save could not be verified.', requestId }, 503));
