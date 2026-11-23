@@ -127,10 +127,12 @@
   };
   window.arkSave=async function(patch){
     if(!window.arkApi)throw new Error('The Ark API client is not loaded.');
-    const current=await window.arkApi.getPublicContent();
-    if(!current||!current.data||!current.updatedAt)throw new Error('Current site content version could not be verified. Nothing was saved.');
-    const next={...(current.data||{}),...patch};
-    const saved=await window.arkApi.saveContent(next,current.updatedAt);
+    let current=null;
+    try{current=await window.arkApi.getPublicContent();}catch(error){if(error.status!==503)throw error;}
+    const baseline=current&&current.data?current.data:window.arkData;
+    const expectedUpdatedAt=current&&current.updatedAt?current.updatedAt:null;
+    const next={...(baseline||{}),...patch};
+    const saved=await window.arkApi.saveContent(next,expectedUpdatedAt);
     if(!saved||!saved.data||!saved.updatedAt)throw new Error('Save response could not be verified. Refresh before continuing.');
     window.arkData=merge(saved.data);
     window.arkContentUpdatedAt=saved.updatedAt;
