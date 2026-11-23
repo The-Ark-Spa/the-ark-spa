@@ -6,12 +6,13 @@ This is the independent backend being built to replace the Supabase dependency. 
 
 - `worker.js`: public content read, appointment intake, admin authentication/session, content writes, appointment management, asset metadata and R2 image upload/delete.
 - `schema.sql`: base D1 tables for site content, appointments and audit events.
-- `migrations/0002_resilience.sql`: persistent login throttling, revocable sessions, backup inventory, R2 object metadata and idempotency storage.
+- `migrations/0002_resilience.sql`: persistent login throttling, revocable sessions, backup inventory, R2 object metadata, idempotency storage and content revisions.
+- `migrations/0003_appointment_details.sql`: per-person therapy, offer, duration and rate fields required by the existing multi-guest booking UI.
 - `wrangler.toml.example`: D1/R2 binding template.
 
 ## Required resources and configuration
 
-- D1 binding: `DB`; database must have **both** `schema.sql` and `migrations/0002_resilience.sql` applied before this Worker version can serve authenticated requests.
+- D1 binding: `DB`; database must have `schema.sql` and all migrations through `0003_appointment_details.sql` applied before this Worker version can serve authenticated requests.
 - R2 binding: `ASSETS`; create the public image bucket and enable R2 before image upload can be enabled.
 - R2 binding: `BACKUPS`; create a **separate private bucket** for customer/appointment backups. Never expose this bucket through a public domain.
 - Worker variable: `ASSET_PUBLIC_BASE_URL`; HTTPS base URL of the public R2 custom domain, ending with the bucket's public path. Never put account secrets here.
