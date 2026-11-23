@@ -5,7 +5,8 @@ This is the independent backend being built to replace the Supabase dependency. 
 ## Components
 
 - `worker.js`: public content read, appointment intake, admin authentication/session, content writes, appointment management, asset metadata and R2 image upload/delete.
-- `schema.sql`: base D1 tables for site content, appointments and audit events.
+- `schema.sql`: readable baseline schema reference.
+- `migrations/0001_initial_schema.sql`: tracked initial D1 schema applied by Wrangler.
 - `migrations/0002_resilience.sql`: persistent login throttling, revocable sessions, backup inventory, R2 object metadata, idempotency storage and content revisions.
 - `migrations/0003_appointment_details.sql`: per-person therapy, offer, duration and rate fields required by the existing multi-guest booking UI.
 - `wrangler.toml.example`: D1/R2 binding template.
