@@ -6,6 +6,7 @@ Last checked: 2026-11-23 (Asia/Kolkata)
 
 - The existing D1 database `thearkspadata` was inspected and confirmed to contain no application tables before setup.
 - Applied `backend/schema.sql` followed by migrations `0002_resilience.sql` and `0003_appointment_details.sql` to that D1 database.
+- Added the Wrangler `d1_migrations` ledger and recorded `0001_initial_schema.sql`, `0002_resilience.sql` and `0003_appointment_details.sql` as applied, matching the SQL already provisioned.
 - Read-only verification confirmed these application tables exist:
   - `site_content`
   - `appointments`
