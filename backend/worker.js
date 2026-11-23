@@ -110,8 +110,25 @@ async function isLoginRateLimited(env, request, email) {
   return false;
 }
 async function verifyPassword(password, stored) {
-  // Format: pbkdf2-sha256$iterations$salt-hex$derived-key-hex
-  const parts = String(stored || '').split('
+  const parts = String(stored || '').split('$');
+  if (parts.length !== 4 || parts[0] !== 'pbkdf2-sha256') return false;
+  const iterations = Number(parts[1]);
+  if (!Number.isInteger(iterations) || iterations < 100000 || iterations > 1000000) return false;
+  const salt = hexToBytes(parts[2]);
+  const expected = parts[3].toLowerCase();
+  if (salt.length < 16 || !/^(?:[0-9a-f]{2}){32}$/i.test(expected)) return false;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
+  return equalConstantTime(bytesToHex(bits), expected);
+}
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iterations = 310000;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
+  return 'pbkdf2-sha256$' + iterations + '$' + bytesToHex(salt) + '$' + bytesToHex(bits);
+}
+
 async function createSession(env, email) {
   const expiresAt = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
   const payload = b64url(new TextEncoder().encode(JSON.stringify({ e: email, exp: expiresAt, n: crypto.randomUUID() })));
