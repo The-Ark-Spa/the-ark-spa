@@ -4,7 +4,8 @@
   async function request(path, options = {}) {
     if (!base) throw new Error('The Ark API endpoint is not configured.');
     const headers = new Headers(options.headers || {});
-    const init = { ...options, credentials: 'include', headers };
+    const init = { ...options, credentials: 'omit', headers };
+    try { const token = sessionStorage.getItem('ark_admin_session_token'); if (token && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token); } catch {}
     if (options.body && !(options.body instanceof FormData) && typeof options.body !== 'string') {
       headers.set('Content-Type', 'application/json');
       init.body = JSON.stringify(options.body);
