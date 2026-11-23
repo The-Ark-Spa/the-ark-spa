@@ -111,7 +111,454 @@ async function isLoginRateLimited(env, request, email) {
 }
 async function verifyPassword(password, stored) {
   // Format: pbkdf2-sha256$iterations$salt-hex$derived-key-hex
-  const parts = String(stored || '').split('$');
+  const parts = String(stored || '').split('
+async function createSession(env, email) {
+  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
+  const payload = b64url(new TextEncoder().encode(JSON.stringify({ e: email, exp: expiresAt, n: crypto.randomUUID() })));
+  const token = payload + '.' + b64url(await hmac(env.SESSION_SECRET, payload));
+  const tokenHash = await digestHex(token);
+  await env.DB.prepare('INSERT INTO admin_sessions (token_hash, admin_email, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(tokenHash, email, Math.floor(Date.now() / 1000), expiresAt).run();
+  return token;
+}
+async function readSession(request, env) {
+  const raw = request.headers.get('Cookie') || '';
+  const cookieMatch = raw.match(/(?:^|;\s*)ark_admin_session=([^;]+)/);
+  const bearerMatch = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i);
+  const token = bearerMatch?.[1] || cookieMatch?.[1] || '';
+  if (!token || !env.SESSION_SECRET) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const expected = b64url(await hmac(env.SESSION_SECRET, parts[0]));
+  if (!equalConstantTime(expected, parts[1])) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(unb64url(parts[0])));
+    if (!payload.e || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (payload.e !== env.ADMIN_EMAIL) return null;
+    const tokenHash = await digestHex(token);
+    const stored = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND admin_email = ? AND expires_at > ? AND revoked_at IS NULL')
+      .bind(tokenHash, payload.e, Math.floor(Date.now() / 1000)).first();
+    if (!stored) return null;
+    return { ...payload, tokenHash };
+  } catch { return null; }
+}
+async function readJson(request, maxBytes = MAX_BODY_BYTES) {
+  const length = Number(request.headers.get('Content-Length') || 0);
+  if (length > maxBytes) throw new Error('Request body is too large.');
+  const text = await request.text();
+  if (new TextEncoder().encode(text).length > maxBytes) throw new Error('Request body is too large.');
+  return JSON.parse(text);
+}
+function requireMutationOrigin(request, env) {
+  return requestOriginAllowed(request, env);
+}
+async function requireAdmin(request, env) {
+  return readSession(request, env);
+}
+async function audit(env, actor, action, resource, requestId) {
+  try {
+    await env.DB.prepare('INSERT INTO audit_events (request_id, actor, action, resource) VALUES (?, ?, ?, ?)')
+      .bind(requestId, actor, action, resource).run();
+  } catch (error) {
+    // Audit failure is intentionally visible in logs; sensitive mutation callers decide whether to fail closed.
+    console.error('audit_write_failed', action, resource, String(error));
+    throw new Error('Audit record could not be written; operation was not confirmed.');
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const requestId = crypto.randomUUID();
+    const path = url.pathname;
+    const method = request.method.toUpperCase();
+
+    if (method === 'OPTIONS') {
+      const origin = request.headers.get('Origin');
+      if (!origin || !allowedOrigins(env).includes(origin)) return json({ ok: false, error: 'Origin not allowed.' }, 403);
+      return new Response(null, { status: 204, headers: responseHeaders(request, env, {
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID, Idempotency-Key, Authorization',
+        'Access-Control-Max-Age': '600'
+      }) });
+    }
+
+    if (path.startsWith('/assets/') && method === 'GET') {
+      try {
+        const objectKey = decodeURIComponent(path.slice('/assets/'.length));
+        const parts = objectKey.split('/');
+        if (parts.length !== 4 || parts[0] !== 'ark' || !['gallery','hero','logo'].includes(parts[1]) || !/^[0-9]{4}$/.test(parts[2]) || !/^[A-Za-z0-9._-]+$/.test(parts[3]) || objectKey.includes('..')) {
+          return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        }
+        const asset = await env.DB.prepare('SELECT file_data, content_type FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+        if (!asset || !asset.file_data) return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        const headers = new Headers({ 'Content-Type': asset.content_type, 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+        return new Response(asset.file_data, { status: 200, headers });
+      } catch (error) {
+        console.error('public_asset_read_failed', requestId, String(error));
+        return new Response('Asset unavailable.', { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      }
+    }
+
+    if (path === '/api/health' && method === 'GET') {
+      let d1 = false;
+      try { if (env.DB) { await env.DB.prepare('SELECT 1 AS ready').first(); d1 = true; } } catch (error) {
+        console.error('health_d1_check_failed', requestId, String(error));
+      }
+      const status = d1 ? 'healthy' : 'unavailable';
+      return withCors(request, env, json({ ok: d1, status, service: 'the-ark-spa-api', dependencies: { d1, imageStorage: d1, backups: d1 }, requestId }, d1 ? 200 : 503));
+    }
+    if (!env.DB) return withCors(request, env, json({ ok: false, error: 'Database binding is not configured.', requestId }, 503));
+
+    if (path === '/api/public/site-content' && method === 'GET') {
+      try {
+        const row = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+        if (!row) return withCors(request, env, json({ ok: false, error: 'Site content has not been imported yet.', requestId }, 503));
+        return withCors(request, env, json({ ok: true, data: JSON.parse(row.data), updatedAt: row.updated_at, requestId }));
+      } catch (error) {
+        console.error('public_content_read_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Site content is temporarily unavailable.', requestId }, 503));
+      }
+    }
+
+    if (path === '/api/appointments' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        const body = await readJson(request, 20_000);
+        const phone = String(body.phone || '').trim();
+        const date = String(body.date || '').trim();
+        const time = String(body.time || '').trim();
+        if (!phone || phone.length > 30 || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !/^\\d{2}:\\d{2}$/.test(time)) {
+          return withCors(request, env, json({ ok: false, error: 'Please provide a valid phone number, date and time.', requestId }, 400));
+        }
+        const rawIdempotencyKey = request.headers.get('Idempotency-Key') || '';
+        if (rawIdempotencyKey && !/^[A-Za-z0-9_-]{16,128}$/.test(rawIdempotencyKey)) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid request idempotency key.', requestId }, 400));
+        }
+        const now = Math.floor(Date.now() / 1000);
+        const idemKey = rawIdempotencyKey ? await digestHex(rawIdempotencyKey) : '';
+        if (idemKey) {
+          const prior = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+            .bind(idemKey, 'appointment.create', now).first();
+          if (prior) return withCors(request, env, json(JSON.parse(prior.response_json), 200));
+        }
+        const id = crypto.randomUUID();
+        const guestCount = Math.min(4, Math.max(1, Number.parseInt(body.guestCount || body.guests || 1, 10) || 1));
+        const people = Array.isArray(body.people) ? body.people.slice(0, 4).map((person, index) => ({
+          person: Math.min(4, Math.max(1, Number.parseInt(person?.person || index + 1, 10) || index + 1)),
+          service: String(person?.service || '').slice(0, 200),
+          offer: String(person?.offer || '').slice(0, 200),
+          duration: String(person?.duration || '').slice(0, 80),
+          regularRate: String(person?.regularRate || '').slice(0, 80),
+          finalPrice: String(person?.finalPrice || '').slice(0, 80),
+          offerType: String(person?.offerType || '').slice(0, 40),
+          offerRate: String(person?.offerRate || '').slice(0, 80),
+          offerPercent: Number.isFinite(Number(person?.offerPercent)) ? Number(person.offerPercent) : null
+        })) : [];
+        if (people.length && people.length !== guestCount) {
+          return withCors(request, env, json({ ok: false, error: 'Guest details do not match the selected guest count.', requestId }, 400));
+        }
+        const payload = { ok: true, id, status: 'Pending', requestId };
+        const appointmentInsert = env.DB.prepare(`INSERT INTO appointments
+          (id,name,phone,email,service,offer,guests,guest_count,people,selected_duration,regular_rate,date,time,final_price,total_amount,status,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+          .bind(id, String(body.name || '').slice(0, 200), phone, String(body.email || '').slice(0, 254),
+            String(body.service || '').slice(0, 500), String(body.offer || '').slice(0, 500),
+            guestCount, guestCount, JSON.stringify(people), String(body.selectedDuration || '').slice(0, 500),
+            String(body.regularRate || '').slice(0, 500), date, time,
+            String(body.finalPrice || '').slice(0, 100), Number.isFinite(Number(body.totalAmount)) ? Number(body.totalAmount) : null,
+            'Pending');
+        if (idemKey) {
+          try {
+            await env.DB.batch([
+              appointmentInsert,
+              env.DB.prepare('INSERT INTO idempotency_keys (key,operation,response_json,created_at,expires_at) VALUES (?,?,?,?,?)')
+                .bind(idemKey, 'appointment.create', JSON.stringify(payload), now, now + 7 * 86400)
+            ]);
+          } catch (error) {
+            const raced = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+              .bind(idemKey, 'appointment.create', now).first();
+            if (raced) return withCors(request, env, json(JSON.parse(raced.response_json), 200));
+            throw error;
+          }
+        } else {
+          await appointmentInsert.run();
+        }
+        const saved = await env.DB.prepare('SELECT id,status FROM appointments WHERE id = ?').bind(id).first();
+        if (!saved || saved.status !== 'Pending') throw new Error('Appointment read-back verification failed.');
+        return withCors(request, env, json(payload, 201));
+      } catch (error) {
+        console.error('appointment_create_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Appointment could not be saved. Please try again.', requestId }, 503));
+      }
+    }
+
+    if (path === '/api/admin/bootstrap' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        if (!env.ADMIN_SETUP_CODE || !env.ADMIN_EMAIL) return withCors(request, env, json({ ok: false, error: 'Secure setup is not enabled.', requestId }, 503));
+        const existing = await env.DB.prepare('SELECT email FROM admin_credentials LIMIT 1').first();
+        if (existing) return withCors(request, env, json({ ok: false, error: 'Admin account is already initialized.', requestId }, 409));
+        const body = await readJson(request, 10_000);
+        const code = String(body.setupCode || '');
+        const password = String(body.password || '');
+        if (!equalConstantTime(code, String(env.ADMIN_SETUP_CODE))) return withCors(request, env, json({ ok: false, error: 'Invalid setup code.', requestId }, 403));
+        if (password.length < 14 || password.length > 1024) return withCors(request, env, json({ ok: false, error: 'Choose a password with at least 14 characters.', requestId }, 400));
+        const passwordHash = await hashPassword(password);
+        await env.DB.prepare('INSERT INTO admin_credentials (email,password_hash) VALUES (?,?)').bind(String(env.ADMIN_EMAIL).toLowerCase(), passwordHash).run();
+        const saved = await env.DB.prepare('SELECT email FROM admin_credentials WHERE email = ?').bind(String(env.ADMIN_EMAIL).toLowerCase()).first();
+        if (!saved) throw new Error('Admin credential read-back verification failed.');
+        await env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, 'system', 'admin.bootstrap', saved.email).run();
+        return withCors(request, env, json({ ok: true, email: saved.email, requestId }, 201));
+      } catch (error) {
+        console.error('admin_bootstrap_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Admin setup failed. Please retry once.', requestId }, 400));
+      }
+    }
+
+    if (path === '/api/admin/login' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        if (!env.ADMIN_EMAIL || !env.SESSION_SECRET) {
+          return withCors(request, env, json({ ok: false, error: 'Admin login is not configured.', requestId }, 503));
+        }
+        const adminCredential = await env.DB.prepare('SELECT password_hash FROM admin_credentials WHERE email = ?').bind(String(env.ADMIN_EMAIL).toLowerCase()).first();
+        if (!adminCredential?.password_hash) return withCors(request, env, json({ ok: false, error: 'Admin credentials are not provisioned.', requestId }, 503));
+        const body = await readJson(request, 10_000);
+        const email = String(body.email || '').trim().toLowerCase();
+        const password = String(body.password || '');
+        if (await isLoginRateLimited(env, request, email)) {
+          return withCors(request, env, json({ ok: false, error: 'Too many login attempts. Please wait 15 minutes and try again.', requestId }, 429, { 'Retry-After': '900' }));
+        }
+        const valid = !!email && email.length <= 254 && !!password && password.length <= 1024 &&
+          equalConstantTime(email, String(env.ADMIN_EMAIL).toLowerCase()) &&
+          await verifyPassword(password, adminCredential.password_hash);
+        await recordLoginAttempt(env, request, email, valid);
+        if (!valid) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid admin ID or password.', requestId }, 401));
+        }
+        const token = await createSession(env, env.ADMIN_EMAIL);
+        return withCors(request, env, json({ ok: true, token, expiresIn: SESSION_SECONDS, requestId }, 200, { 'Set-Cookie': cookie(token, SESSION_SECONDS) }));
+      } catch (error) {
+        console.error('admin_login_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Invalid login request.', requestId }, 400));
+      }
+    }
+
+    if (path === '/api/admin/session' && method === 'GET') {
+      const session = await requireAdmin(request, env);
+      return withCors(request, env, json(session ? { ok: true, email: session.e, requestId } : { ok: false, requestId }, session ? 200 : 401));
+    }
+
+    if (path === '/api/admin/logout' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      const session = await requireAdmin(request, env);
+      if (session?.tokenHash) {
+        await env.DB.prepare('UPDATE admin_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
+          .bind(Math.floor(Date.now() / 1000), session.tokenHash).run();
+      }
+      return withCors(request, env, json({ ok: true, requestId }, 200, { 'Set-Cookie': cookie('', 0) }));
+    }
+
+    if (path.startsWith('/api/admin/')) {
+      const session = await requireAdmin(request, env);
+      if (!session) return withCors(request, env, json({ ok: false, error: 'Admin authentication required.', requestId }, 401));
+      if (!requireMutationOrigin(request, env) && method !== 'GET') return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+
+      if (path === '/api/admin/site-content' && method === 'PUT') {
+        try {
+          const body = await readJson(request);
+          const data = body.data;
+          if (!data || typeof data !== 'object' || Array.isArray(data)) return withCors(request, env, json({ ok: false, error: 'Site content must be a JSON object.', requestId }, 400));
+          const encoded = JSON.stringify(data);
+          if (encoded.length > MAX_BODY_BYTES) return withCors(request, env, json({ ok: false, error: 'Site content is too large.', requestId }, 413));
+          const current = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (current && !body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'A content version is required to prevent overwriting newer edits.', requestId }, 428));
+          }
+          if (current && body.expectedUpdatedAt !== current.updated_at) {
+            return withCors(request, env, json({ ok: false, error: 'Content changed since it was loaded. Refresh before saving.', updatedAt: current.updated_at, requestId }, 409));
+          }
+          if (!current && body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'The content record changed. Refresh before saving.', requestId }, 409));
+          }
+          const updatedAt = new Date().toISOString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO site_content (id,data,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at').bind(encoded, updatedAt),
+            env.DB.prepare('INSERT INTO site_content_revisions (data,actor,request_id) VALUES (?,?,?)').bind(encoded, session.e, requestId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'site_content.write', 'site_content:1')
+          ]);
+          const saved = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (!saved || saved.data !== encoded) throw new Error('Read-back verification failed.');
+          return withCors(request, env, json({ ok: true, data: JSON.parse(saved.data), updatedAt: saved.updated_at, requestId }));
+        } catch (error) {
+          console.error('site_content_write_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Site content save could not be verified.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/appointments' && method === 'GET') {
+        try {
+          const status = String(url.searchParams.get('status') || '');
+          const limit = Math.min(500, Math.max(1, Number.parseInt(url.searchParams.get('limit') || '100', 10) || 100));
+          const result = status
+            ? await env.DB.prepare('SELECT * FROM appointments WHERE status = ? ORDER BY created_at DESC LIMIT ?').bind(status, limit).all()
+            : await env.DB.prepare('SELECT * FROM appointments ORDER BY created_at DESC LIMIT ?').bind(limit).all();
+          return withCors(request, env, json({ ok: true, appointments: result.results || [], requestId }));
+        } catch (error) {
+          console.error('appointments_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointments could not be loaded.', requestId }, 503));
+        }
+      }
+
+
+
+      if (path === '/api/admin/backups' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT id,status,byte_length,created_at,verified_at,notes FROM backup_runs ORDER BY created_at DESC LIMIT 50').all();
+          return withCors(request, env, json({ ok: true, backups: result.results || [], requestId }));
+        } catch (error) {
+          console.error('backup_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup history could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/backups' && method === 'POST') {
+        const backupId = crypto.randomUUID();
+        const objectKey = 'd1:' + backupId;
+        try {
+          const [content, appointments, assets] = await Promise.all([
+            env.DB.prepare('SELECT data,updated_at FROM site_content WHERE id = 1').first(),
+            env.DB.prepare('SELECT * FROM appointments ORDER BY created_at ASC').all(),
+            env.DB.prepare('SELECT object_key,public_url,content_type,byte_length,purpose,created_at FROM storage_objects ORDER BY created_at ASC').all()
+          ]);
+          if (!content) return withCors(request, env, json({ ok: false, error: 'There is no saved site content to back up yet.', requestId }, 409));
+          const snapshot = {
+            format: 'the-ark-spa-backup',
+            version: 1,
+            backupId,
+            createdAt: new Date().toISOString(),
+            siteContent: { data: JSON.parse(content.data), updatedAt: content.updated_at },
+            appointments: appointments.results || [],
+            assets: assets.results || []
+          };
+          const encoded = JSON.stringify(snapshot);
+          const bytes = new TextEncoder().encode(encoded);
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          await env.DB.prepare("INSERT INTO backup_runs (id,status,object_key,content_sha256,byte_length,snapshot_json,notes) VALUES (?,'started',?,?,?,?,'')").bind(backupId, objectKey, checksum, bytes.byteLength, encoded).run();
+          const stored = await env.DB.prepare('SELECT snapshot_json FROM backup_runs WHERE id = ?').bind(backupId).first();
+          if (!stored || stored.snapshot_json !== encoded) throw new Error('Backup read-back verification failed.');
+          const storedChecksum = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stored.snapshot_json)));
+          if (storedChecksum !== checksum) throw new Error('Backup checksum verification failed.');
+          await env.DB.batch([
+            env.DB.prepare("UPDATE backup_runs SET status='verified',verified_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(backupId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'backup.create', backupId)
+          ]);
+          return withCors(request, env, json({ ok: true, backup: { id: backupId, status: 'verified', byteLength: bytes.byteLength, sha256: checksum, createdAt: snapshot.createdAt }, download: snapshot, requestId }, 201));
+        } catch (error) {
+          try { await env.DB.prepare("UPDATE backup_runs SET status='failed',notes=? WHERE id=?").bind(String(error).slice(0, 500), backupId).run(); } catch (recordError) { console.error('backup_failure_record_failed', requestId, String(recordError)); }
+          console.error('backup_create_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup could not be completed and verified.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT object_key, public_url, content_type, byte_length, purpose, created_at FROM storage_objects ORDER BY created_at DESC LIMIT 500').all();
+          return withCors(request, env, json({ ok: true, assets: result.results || [], requestId }));
+        } catch (error) {
+          console.error('asset_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Assets could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'POST') {
+        let objectKey = '';
+        try {
+          const form = await request.formData();
+          const file = form.get('file');
+          const purpose = String(form.get('purpose') || '');
+          const allowed = { gallery: ['image/jpeg','image/png','image/webp'], hero: ['image/jpeg','image/png','image/webp'], logo: ['image/jpeg','image/png','image/webp'] };
+          if (!file || typeof file.stream !== 'function' || !allowed[purpose]?.includes(file.type) || file.size < 1 || file.size > 1 * 1024 * 1024) {
+            return withCors(request, env, json({ ok: false, error: 'Choose a JPG, PNG or WebP image up to 1 MB.', requestId }, 400));
+          }
+          const extension = ({'image/jpeg':'jpg','image/png':'png','image/webp':'webp'})[file.type];
+          objectKey = 'ark/' + purpose + '/' + new Date().getUTCFullYear() + '/' + crypto.randomUUID() + '.' + extension;
+          const bytes = await file.arrayBuffer();
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          const publicUrl = new URL('/assets/' + objectKey.split('/').map(encodeURIComponent).join('/'), request.url).toString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by, file_data) VALUES (?, ?, ?, ?, ?, ?, ?)')
+              .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e, new Uint8Array(bytes)),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)')
+              .bind(requestId, session.e, 'asset.upload', objectKey)
+          ]);
+          return withCors(request, env, json({ ok: true, asset: { object_key: objectKey, public_url: publicUrl, content_type: file.type, byte_length: file.size, purpose }, requestId }, 201));
+        } catch (error) {
+          if (objectKey) {
+            try { await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run(); } catch (cleanupError) { console.error('asset_metadata_cleanup_failed', requestId, String(cleanupError)); }
+          }
+          console.error('asset_upload_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Image upload could not be verified.', requestId }, 503));
+        }
+      }
+
+      const assetPrefix = '/api/admin/assets/';
+      const assetKeyPath = path.startsWith(assetPrefix) ? path.slice(assetPrefix.length) : '';
+      if (assetKeyPath && method === 'DELETE') {
+        try {
+          const objectKey = decodeURIComponent(assetKeyPath);
+          const keyParts = objectKey.split('/');
+          if (keyParts.length !== 4 || keyParts[0] !== 'ark' || !['gallery','hero','logo'].includes(keyParts[1]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[2]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[3]) || objectKey.includes('..')) return withCors(request, env, json({ ok: false, error: 'Invalid asset key.', requestId }, 400));
+          const existing = await env.DB.prepare('SELECT object_key FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+          if (!existing) return withCors(request, env, json({ ok: false, error: 'Asset not found.', requestId }, 404));
+          await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run();
+          await audit(env, session.e, 'asset.delete', objectKey, requestId);
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('asset_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Asset deletion could not be verified.', requestId }, 503));
+        }
+      }
+
+      const appointmentMatch = path.match(/^\/api\/admin\/appointments\/([0-9a-f-]{36})$/i);
+
+      if (appointmentMatch && method === 'DELETE') {
+        try {
+          const results = await env.DB.batch([
+            env.DB.prepare('DELETE FROM appointments WHERE id = ?').bind(appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.delete', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment deletion could not be verified.', requestId }, 503));
+        }
+      }
+
+      if (appointmentMatch && method === 'PATCH') {
+        try {
+          const body = await readJson(request, 10_000);
+          const status = String(body.status || '');
+          if (!['Pending','Confirmed','Completed','Cancelled','No-show'].includes(status)) return withCors(request, env, json({ ok: false, error: 'Invalid appointment status.', requestId }, 400));
+          const results = await env.DB.batch([
+            env.DB.prepare(`UPDATE appointments SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).bind(status, appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.status', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_update_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment update could not be verified.', requestId }, 503));
+        }
+      }
+    }
+
+    return withCors(request, env, json({ ok: false, error: 'Not found.', requestId }, 404));
+  }
+};
+);
   if (parts.length !== 4 || parts[0] !== 'pbkdf2-sha256') return false;
   const iterations = Number(parts[1]);
   if (!Number.isInteger(iterations) || iterations < 100000 || iterations > 1000000) return false;
@@ -121,6 +568,1285 @@ async function verifyPassword(password, stored) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
   return equalConstantTime(bytesToHex(bits), expected);
+}
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iterations = 310000;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations }, key, 256);
+  return 'pbkdf2-sha256
+async function createSession(env, email) {
+  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
+  const payload = b64url(new TextEncoder().encode(JSON.stringify({ e: email, exp: expiresAt, n: crypto.randomUUID() })));
+  const token = payload + '.' + b64url(await hmac(env.SESSION_SECRET, payload));
+  const tokenHash = await digestHex(token);
+  await env.DB.prepare('INSERT INTO admin_sessions (token_hash, admin_email, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(tokenHash, email, Math.floor(Date.now() / 1000), expiresAt).run();
+  return token;
+}
+async function readSession(request, env) {
+  const raw = request.headers.get('Cookie') || '';
+  const cookieMatch = raw.match(/(?:^|;\s*)ark_admin_session=([^;]+)/);
+  const bearerMatch = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i);
+  const token = bearerMatch?.[1] || cookieMatch?.[1] || '';
+  if (!token || !env.SESSION_SECRET) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const expected = b64url(await hmac(env.SESSION_SECRET, parts[0]));
+  if (!equalConstantTime(expected, parts[1])) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(unb64url(parts[0])));
+    if (!payload.e || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (payload.e !== env.ADMIN_EMAIL) return null;
+    const tokenHash = await digestHex(token);
+    const stored = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND admin_email = ? AND expires_at > ? AND revoked_at IS NULL')
+      .bind(tokenHash, payload.e, Math.floor(Date.now() / 1000)).first();
+    if (!stored) return null;
+    return { ...payload, tokenHash };
+  } catch { return null; }
+}
+async function readJson(request, maxBytes = MAX_BODY_BYTES) {
+  const length = Number(request.headers.get('Content-Length') || 0);
+  if (length > maxBytes) throw new Error('Request body is too large.');
+  const text = await request.text();
+  if (new TextEncoder().encode(text).length > maxBytes) throw new Error('Request body is too large.');
+  return JSON.parse(text);
+}
+function requireMutationOrigin(request, env) {
+  return requestOriginAllowed(request, env);
+}
+async function requireAdmin(request, env) {
+  return readSession(request, env);
+}
+async function audit(env, actor, action, resource, requestId) {
+  try {
+    await env.DB.prepare('INSERT INTO audit_events (request_id, actor, action, resource) VALUES (?, ?, ?, ?)')
+      .bind(requestId, actor, action, resource).run();
+  } catch (error) {
+    // Audit failure is intentionally visible in logs; sensitive mutation callers decide whether to fail closed.
+    console.error('audit_write_failed', action, resource, String(error));
+    throw new Error('Audit record could not be written; operation was not confirmed.');
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const requestId = crypto.randomUUID();
+    const path = url.pathname;
+    const method = request.method.toUpperCase();
+
+    if (method === 'OPTIONS') {
+      const origin = request.headers.get('Origin');
+      if (!origin || !allowedOrigins(env).includes(origin)) return json({ ok: false, error: 'Origin not allowed.' }, 403);
+      return new Response(null, { status: 204, headers: responseHeaders(request, env, {
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID, Idempotency-Key, Authorization',
+        'Access-Control-Max-Age': '600'
+      }) });
+    }
+
+    if (path.startsWith('/assets/') && method === 'GET') {
+      try {
+        const objectKey = decodeURIComponent(path.slice('/assets/'.length));
+        const parts = objectKey.split('/');
+        if (parts.length !== 4 || parts[0] !== 'ark' || !['gallery','hero','logo'].includes(parts[1]) || !/^[0-9]{4}$/.test(parts[2]) || !/^[A-Za-z0-9._-]+$/.test(parts[3]) || objectKey.includes('..')) {
+          return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        }
+        const asset = await env.DB.prepare('SELECT file_data, content_type FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+        if (!asset || !asset.file_data) return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        const headers = new Headers({ 'Content-Type': asset.content_type, 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+        return new Response(asset.file_data, { status: 200, headers });
+      } catch (error) {
+        console.error('public_asset_read_failed', requestId, String(error));
+        return new Response('Asset unavailable.', { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      }
+    }
+
+    if (path === '/api/health' && method === 'GET') {
+      let d1 = false;
+      try { if (env.DB) { await env.DB.prepare('SELECT 1 AS ready').first(); d1 = true; } } catch (error) {
+        console.error('health_d1_check_failed', requestId, String(error));
+      }
+      const status = d1 ? 'healthy' : 'unavailable';
+      return withCors(request, env, json({ ok: d1, status, service: 'the-ark-spa-api', dependencies: { d1, imageStorage: d1, backups: d1 }, requestId }, d1 ? 200 : 503));
+    }
+    if (!env.DB) return withCors(request, env, json({ ok: false, error: 'Database binding is not configured.', requestId }, 503));
+
+    if (path === '/api/public/site-content' && method === 'GET') {
+      try {
+        const row = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+        if (!row) return withCors(request, env, json({ ok: false, error: 'Site content has not been imported yet.', requestId }, 503));
+        return withCors(request, env, json({ ok: true, data: JSON.parse(row.data), updatedAt: row.updated_at, requestId }));
+      } catch (error) {
+        console.error('public_content_read_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Site content is temporarily unavailable.', requestId }, 503));
+      }
+    }
+
+    if (path === '/api/appointments' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        const body = await readJson(request, 20_000);
+        const phone = String(body.phone || '').trim();
+        const date = String(body.date || '').trim();
+        const time = String(body.time || '').trim();
+        if (!phone || phone.length > 30 || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !/^\\d{2}:\\d{2}$/.test(time)) {
+          return withCors(request, env, json({ ok: false, error: 'Please provide a valid phone number, date and time.', requestId }, 400));
+        }
+        const rawIdempotencyKey = request.headers.get('Idempotency-Key') || '';
+        if (rawIdempotencyKey && !/^[A-Za-z0-9_-]{16,128}$/.test(rawIdempotencyKey)) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid request idempotency key.', requestId }, 400));
+        }
+        const now = Math.floor(Date.now() / 1000);
+        const idemKey = rawIdempotencyKey ? await digestHex(rawIdempotencyKey) : '';
+        if (idemKey) {
+          const prior = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+            .bind(idemKey, 'appointment.create', now).first();
+          if (prior) return withCors(request, env, json(JSON.parse(prior.response_json), 200));
+        }
+        const id = crypto.randomUUID();
+        const guestCount = Math.min(4, Math.max(1, Number.parseInt(body.guestCount || body.guests || 1, 10) || 1));
+        const people = Array.isArray(body.people) ? body.people.slice(0, 4).map((person, index) => ({
+          person: Math.min(4, Math.max(1, Number.parseInt(person?.person || index + 1, 10) || index + 1)),
+          service: String(person?.service || '').slice(0, 200),
+          offer: String(person?.offer || '').slice(0, 200),
+          duration: String(person?.duration || '').slice(0, 80),
+          regularRate: String(person?.regularRate || '').slice(0, 80),
+          finalPrice: String(person?.finalPrice || '').slice(0, 80),
+          offerType: String(person?.offerType || '').slice(0, 40),
+          offerRate: String(person?.offerRate || '').slice(0, 80),
+          offerPercent: Number.isFinite(Number(person?.offerPercent)) ? Number(person.offerPercent) : null
+        })) : [];
+        if (people.length && people.length !== guestCount) {
+          return withCors(request, env, json({ ok: false, error: 'Guest details do not match the selected guest count.', requestId }, 400));
+        }
+        const payload = { ok: true, id, status: 'Pending', requestId };
+        const appointmentInsert = env.DB.prepare(`INSERT INTO appointments
+          (id,name,phone,email,service,offer,guests,guest_count,people,selected_duration,regular_rate,date,time,final_price,total_amount,status,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+          .bind(id, String(body.name || '').slice(0, 200), phone, String(body.email || '').slice(0, 254),
+            String(body.service || '').slice(0, 500), String(body.offer || '').slice(0, 500),
+            guestCount, guestCount, JSON.stringify(people), String(body.selectedDuration || '').slice(0, 500),
+            String(body.regularRate || '').slice(0, 500), date, time,
+            String(body.finalPrice || '').slice(0, 100), Number.isFinite(Number(body.totalAmount)) ? Number(body.totalAmount) : null,
+            'Pending');
+        if (idemKey) {
+          try {
+            await env.DB.batch([
+              appointmentInsert,
+              env.DB.prepare('INSERT INTO idempotency_keys (key,operation,response_json,created_at,expires_at) VALUES (?,?,?,?,?)')
+                .bind(idemKey, 'appointment.create', JSON.stringify(payload), now, now + 7 * 86400)
+            ]);
+          } catch (error) {
+            const raced = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+              .bind(idemKey, 'appointment.create', now).first();
+            if (raced) return withCors(request, env, json(JSON.parse(raced.response_json), 200));
+            throw error;
+          }
+        } else {
+          await appointmentInsert.run();
+        }
+        const saved = await env.DB.prepare('SELECT id,status FROM appointments WHERE id = ?').bind(id).first();
+        if (!saved || saved.status !== 'Pending') throw new Error('Appointment read-back verification failed.');
+        return withCors(request, env, json(payload, 201));
+      } catch (error) {
+        console.error('appointment_create_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Appointment could not be saved. Please try again.', requestId }, 503));
+      }
+    }
+
+    if (path === '/api/admin/login' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        if (!env.ADMIN_EMAIL || !env.SESSION_SECRET) {
+          return withCors(request, env, json({ ok: false, error: 'Admin login is not configured.', requestId }, 503));
+        }
+        const adminCredential = await env.DB.prepare('SELECT password_hash FROM admin_credentials WHERE email = ?').bind(String(env.ADMIN_EMAIL).toLowerCase()).first();
+        if (!adminCredential?.password_hash) return withCors(request, env, json({ ok: false, error: 'Admin credentials are not provisioned.', requestId }, 503));
+        const body = await readJson(request, 10_000);
+        const email = String(body.email || '').trim().toLowerCase();
+        const password = String(body.password || '');
+        if (await isLoginRateLimited(env, request, email)) {
+          return withCors(request, env, json({ ok: false, error: 'Too many login attempts. Please wait 15 minutes and try again.', requestId }, 429, { 'Retry-After': '900' }));
+        }
+        const valid = !!email && email.length <= 254 && !!password && password.length <= 1024 &&
+          equalConstantTime(email, String(env.ADMIN_EMAIL).toLowerCase()) &&
+          await verifyPassword(password, adminCredential.password_hash);
+        await recordLoginAttempt(env, request, email, valid);
+        if (!valid) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid admin ID or password.', requestId }, 401));
+        }
+        const token = await createSession(env, env.ADMIN_EMAIL);
+        return withCors(request, env, json({ ok: true, token, expiresIn: SESSION_SECONDS, requestId }, 200, { 'Set-Cookie': cookie(token, SESSION_SECONDS) }));
+      } catch (error) {
+        console.error('admin_login_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Invalid login request.', requestId }, 400));
+      }
+    }
+
+    if (path === '/api/admin/session' && method === 'GET') {
+      const session = await requireAdmin(request, env);
+      return withCors(request, env, json(session ? { ok: true, email: session.e, requestId } : { ok: false, requestId }, session ? 200 : 401));
+    }
+
+    if (path === '/api/admin/logout' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      const session = await requireAdmin(request, env);
+      if (session?.tokenHash) {
+        await env.DB.prepare('UPDATE admin_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
+          .bind(Math.floor(Date.now() / 1000), session.tokenHash).run();
+      }
+      return withCors(request, env, json({ ok: true, requestId }, 200, { 'Set-Cookie': cookie('', 0) }));
+    }
+
+    if (path.startsWith('/api/admin/')) {
+      const session = await requireAdmin(request, env);
+      if (!session) return withCors(request, env, json({ ok: false, error: 'Admin authentication required.', requestId }, 401));
+      if (!requireMutationOrigin(request, env) && method !== 'GET') return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+
+      if (path === '/api/admin/site-content' && method === 'PUT') {
+        try {
+          const body = await readJson(request);
+          const data = body.data;
+          if (!data || typeof data !== 'object' || Array.isArray(data)) return withCors(request, env, json({ ok: false, error: 'Site content must be a JSON object.', requestId }, 400));
+          const encoded = JSON.stringify(data);
+          if (encoded.length > MAX_BODY_BYTES) return withCors(request, env, json({ ok: false, error: 'Site content is too large.', requestId }, 413));
+          const current = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (current && !body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'A content version is required to prevent overwriting newer edits.', requestId }, 428));
+          }
+          if (current && body.expectedUpdatedAt !== current.updated_at) {
+            return withCors(request, env, json({ ok: false, error: 'Content changed since it was loaded. Refresh before saving.', updatedAt: current.updated_at, requestId }, 409));
+          }
+          if (!current && body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'The content record changed. Refresh before saving.', requestId }, 409));
+          }
+          const updatedAt = new Date().toISOString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO site_content (id,data,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at').bind(encoded, updatedAt),
+            env.DB.prepare('INSERT INTO site_content_revisions (data,actor,request_id) VALUES (?,?,?)').bind(encoded, session.e, requestId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'site_content.write', 'site_content:1')
+          ]);
+          const saved = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (!saved || saved.data !== encoded) throw new Error('Read-back verification failed.');
+          return withCors(request, env, json({ ok: true, data: JSON.parse(saved.data), updatedAt: saved.updated_at, requestId }));
+        } catch (error) {
+          console.error('site_content_write_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Site content save could not be verified.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/appointments' && method === 'GET') {
+        try {
+          const status = String(url.searchParams.get('status') || '');
+          const limit = Math.min(500, Math.max(1, Number.parseInt(url.searchParams.get('limit') || '100', 10) || 100));
+          const result = status
+            ? await env.DB.prepare('SELECT * FROM appointments WHERE status = ? ORDER BY created_at DESC LIMIT ?').bind(status, limit).all()
+            : await env.DB.prepare('SELECT * FROM appointments ORDER BY created_at DESC LIMIT ?').bind(limit).all();
+          return withCors(request, env, json({ ok: true, appointments: result.results || [], requestId }));
+        } catch (error) {
+          console.error('appointments_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointments could not be loaded.', requestId }, 503));
+        }
+      }
+
+
+
+      if (path === '/api/admin/backups' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT id,status,byte_length,created_at,verified_at,notes FROM backup_runs ORDER BY created_at DESC LIMIT 50').all();
+          return withCors(request, env, json({ ok: true, backups: result.results || [], requestId }));
+        } catch (error) {
+          console.error('backup_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup history could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/backups' && method === 'POST') {
+        const backupId = crypto.randomUUID();
+        const objectKey = 'd1:' + backupId;
+        try {
+          const [content, appointments, assets] = await Promise.all([
+            env.DB.prepare('SELECT data,updated_at FROM site_content WHERE id = 1').first(),
+            env.DB.prepare('SELECT * FROM appointments ORDER BY created_at ASC').all(),
+            env.DB.prepare('SELECT object_key,public_url,content_type,byte_length,purpose,created_at FROM storage_objects ORDER BY created_at ASC').all()
+          ]);
+          if (!content) return withCors(request, env, json({ ok: false, error: 'There is no saved site content to back up yet.', requestId }, 409));
+          const snapshot = {
+            format: 'the-ark-spa-backup',
+            version: 1,
+            backupId,
+            createdAt: new Date().toISOString(),
+            siteContent: { data: JSON.parse(content.data), updatedAt: content.updated_at },
+            appointments: appointments.results || [],
+            assets: assets.results || []
+          };
+          const encoded = JSON.stringify(snapshot);
+          const bytes = new TextEncoder().encode(encoded);
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          await env.DB.prepare("INSERT INTO backup_runs (id,status,object_key,content_sha256,byte_length,snapshot_json,notes) VALUES (?,'started',?,?,?,?,'')").bind(backupId, objectKey, checksum, bytes.byteLength, encoded).run();
+          const stored = await env.DB.prepare('SELECT snapshot_json FROM backup_runs WHERE id = ?').bind(backupId).first();
+          if (!stored || stored.snapshot_json !== encoded) throw new Error('Backup read-back verification failed.');
+          const storedChecksum = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stored.snapshot_json)));
+          if (storedChecksum !== checksum) throw new Error('Backup checksum verification failed.');
+          await env.DB.batch([
+            env.DB.prepare("UPDATE backup_runs SET status='verified',verified_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(backupId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'backup.create', backupId)
+          ]);
+          return withCors(request, env, json({ ok: true, backup: { id: backupId, status: 'verified', byteLength: bytes.byteLength, sha256: checksum, createdAt: snapshot.createdAt }, download: snapshot, requestId }, 201));
+        } catch (error) {
+          try { await env.DB.prepare("UPDATE backup_runs SET status='failed',notes=? WHERE id=?").bind(String(error).slice(0, 500), backupId).run(); } catch (recordError) { console.error('backup_failure_record_failed', requestId, String(recordError)); }
+          console.error('backup_create_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup could not be completed and verified.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT object_key, public_url, content_type, byte_length, purpose, created_at FROM storage_objects ORDER BY created_at DESC LIMIT 500').all();
+          return withCors(request, env, json({ ok: true, assets: result.results || [], requestId }));
+        } catch (error) {
+          console.error('asset_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Assets could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'POST') {
+        let objectKey = '';
+        try {
+          const form = await request.formData();
+          const file = form.get('file');
+          const purpose = String(form.get('purpose') || '');
+          const allowed = { gallery: ['image/jpeg','image/png','image/webp'], hero: ['image/jpeg','image/png','image/webp'], logo: ['image/jpeg','image/png','image/webp'] };
+          if (!file || typeof file.stream !== 'function' || !allowed[purpose]?.includes(file.type) || file.size < 1 || file.size > 1 * 1024 * 1024) {
+            return withCors(request, env, json({ ok: false, error: 'Choose a JPG, PNG or WebP image up to 1 MB.', requestId }, 400));
+          }
+          const extension = ({'image/jpeg':'jpg','image/png':'png','image/webp':'webp'})[file.type];
+          objectKey = 'ark/' + purpose + '/' + new Date().getUTCFullYear() + '/' + crypto.randomUUID() + '.' + extension;
+          const bytes = await file.arrayBuffer();
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          const publicUrl = new URL('/assets/' + objectKey.split('/').map(encodeURIComponent).join('/'), request.url).toString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by, file_data) VALUES (?, ?, ?, ?, ?, ?, ?)')
+              .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e, new Uint8Array(bytes)),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)')
+              .bind(requestId, session.e, 'asset.upload', objectKey)
+          ]);
+          return withCors(request, env, json({ ok: true, asset: { object_key: objectKey, public_url: publicUrl, content_type: file.type, byte_length: file.size, purpose }, requestId }, 201));
+        } catch (error) {
+          if (objectKey) {
+            try { await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run(); } catch (cleanupError) { console.error('asset_metadata_cleanup_failed', requestId, String(cleanupError)); }
+          }
+          console.error('asset_upload_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Image upload could not be verified.', requestId }, 503));
+        }
+      }
+
+      const assetPrefix = '/api/admin/assets/';
+      const assetKeyPath = path.startsWith(assetPrefix) ? path.slice(assetPrefix.length) : '';
+      if (assetKeyPath && method === 'DELETE') {
+        try {
+          const objectKey = decodeURIComponent(assetKeyPath);
+          const keyParts = objectKey.split('/');
+          if (keyParts.length !== 4 || keyParts[0] !== 'ark' || !['gallery','hero','logo'].includes(keyParts[1]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[2]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[3]) || objectKey.includes('..')) return withCors(request, env, json({ ok: false, error: 'Invalid asset key.', requestId }, 400));
+          const existing = await env.DB.prepare('SELECT object_key FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+          if (!existing) return withCors(request, env, json({ ok: false, error: 'Asset not found.', requestId }, 404));
+          await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run();
+          await audit(env, session.e, 'asset.delete', objectKey, requestId);
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('asset_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Asset deletion could not be verified.', requestId }, 503));
+        }
+      }
+
+      const appointmentMatch = path.match(/^\/api\/admin\/appointments\/([0-9a-f-]{36})$/i);
+
+      if (appointmentMatch && method === 'DELETE') {
+        try {
+          const results = await env.DB.batch([
+            env.DB.prepare('DELETE FROM appointments WHERE id = ?').bind(appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.delete', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment deletion could not be verified.', requestId }, 503));
+        }
+      }
+
+      if (appointmentMatch && method === 'PATCH') {
+        try {
+          const body = await readJson(request, 10_000);
+          const status = String(body.status || '');
+          if (!['Pending','Confirmed','Completed','Cancelled','No-show'].includes(status)) return withCors(request, env, json({ ok: false, error: 'Invalid appointment status.', requestId }, 400));
+          const results = await env.DB.batch([
+            env.DB.prepare(`UPDATE appointments SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).bind(status, appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.status', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_update_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment update could not be verified.', requestId }, 503));
+        }
+      }
+    }
+
+    return withCors(request, env, json({ ok: false, error: 'Not found.', requestId }, 404));
+  }
+};
+ + iterations + '
+async function createSession(env, email) {
+  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
+  const payload = b64url(new TextEncoder().encode(JSON.stringify({ e: email, exp: expiresAt, n: crypto.randomUUID() })));
+  const token = payload + '.' + b64url(await hmac(env.SESSION_SECRET, payload));
+  const tokenHash = await digestHex(token);
+  await env.DB.prepare('INSERT INTO admin_sessions (token_hash, admin_email, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(tokenHash, email, Math.floor(Date.now() / 1000), expiresAt).run();
+  return token;
+}
+async function readSession(request, env) {
+  const raw = request.headers.get('Cookie') || '';
+  const cookieMatch = raw.match(/(?:^|;\s*)ark_admin_session=([^;]+)/);
+  const bearerMatch = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i);
+  const token = bearerMatch?.[1] || cookieMatch?.[1] || '';
+  if (!token || !env.SESSION_SECRET) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const expected = b64url(await hmac(env.SESSION_SECRET, parts[0]));
+  if (!equalConstantTime(expected, parts[1])) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(unb64url(parts[0])));
+    if (!payload.e || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (payload.e !== env.ADMIN_EMAIL) return null;
+    const tokenHash = await digestHex(token);
+    const stored = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND admin_email = ? AND expires_at > ? AND revoked_at IS NULL')
+      .bind(tokenHash, payload.e, Math.floor(Date.now() / 1000)).first();
+    if (!stored) return null;
+    return { ...payload, tokenHash };
+  } catch { return null; }
+}
+async function readJson(request, maxBytes = MAX_BODY_BYTES) {
+  const length = Number(request.headers.get('Content-Length') || 0);
+  if (length > maxBytes) throw new Error('Request body is too large.');
+  const text = await request.text();
+  if (new TextEncoder().encode(text).length > maxBytes) throw new Error('Request body is too large.');
+  return JSON.parse(text);
+}
+function requireMutationOrigin(request, env) {
+  return requestOriginAllowed(request, env);
+}
+async function requireAdmin(request, env) {
+  return readSession(request, env);
+}
+async function audit(env, actor, action, resource, requestId) {
+  try {
+    await env.DB.prepare('INSERT INTO audit_events (request_id, actor, action, resource) VALUES (?, ?, ?, ?)')
+      .bind(requestId, actor, action, resource).run();
+  } catch (error) {
+    // Audit failure is intentionally visible in logs; sensitive mutation callers decide whether to fail closed.
+    console.error('audit_write_failed', action, resource, String(error));
+    throw new Error('Audit record could not be written; operation was not confirmed.');
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const requestId = crypto.randomUUID();
+    const path = url.pathname;
+    const method = request.method.toUpperCase();
+
+    if (method === 'OPTIONS') {
+      const origin = request.headers.get('Origin');
+      if (!origin || !allowedOrigins(env).includes(origin)) return json({ ok: false, error: 'Origin not allowed.' }, 403);
+      return new Response(null, { status: 204, headers: responseHeaders(request, env, {
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID, Idempotency-Key, Authorization',
+        'Access-Control-Max-Age': '600'
+      }) });
+    }
+
+    if (path.startsWith('/assets/') && method === 'GET') {
+      try {
+        const objectKey = decodeURIComponent(path.slice('/assets/'.length));
+        const parts = objectKey.split('/');
+        if (parts.length !== 4 || parts[0] !== 'ark' || !['gallery','hero','logo'].includes(parts[1]) || !/^[0-9]{4}$/.test(parts[2]) || !/^[A-Za-z0-9._-]+$/.test(parts[3]) || objectKey.includes('..')) {
+          return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        }
+        const asset = await env.DB.prepare('SELECT file_data, content_type FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+        if (!asset || !asset.file_data) return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        const headers = new Headers({ 'Content-Type': asset.content_type, 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+        return new Response(asset.file_data, { status: 200, headers });
+      } catch (error) {
+        console.error('public_asset_read_failed', requestId, String(error));
+        return new Response('Asset unavailable.', { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      }
+    }
+
+    if (path === '/api/health' && method === 'GET') {
+      let d1 = false;
+      try { if (env.DB) { await env.DB.prepare('SELECT 1 AS ready').first(); d1 = true; } } catch (error) {
+        console.error('health_d1_check_failed', requestId, String(error));
+      }
+      const status = d1 ? 'healthy' : 'unavailable';
+      return withCors(request, env, json({ ok: d1, status, service: 'the-ark-spa-api', dependencies: { d1, imageStorage: d1, backups: d1 }, requestId }, d1 ? 200 : 503));
+    }
+    if (!env.DB) return withCors(request, env, json({ ok: false, error: 'Database binding is not configured.', requestId }, 503));
+
+    if (path === '/api/public/site-content' && method === 'GET') {
+      try {
+        const row = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+        if (!row) return withCors(request, env, json({ ok: false, error: 'Site content has not been imported yet.', requestId }, 503));
+        return withCors(request, env, json({ ok: true, data: JSON.parse(row.data), updatedAt: row.updated_at, requestId }));
+      } catch (error) {
+        console.error('public_content_read_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Site content is temporarily unavailable.', requestId }, 503));
+      }
+    }
+
+    if (path === '/api/appointments' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        const body = await readJson(request, 20_000);
+        const phone = String(body.phone || '').trim();
+        const date = String(body.date || '').trim();
+        const time = String(body.time || '').trim();
+        if (!phone || phone.length > 30 || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !/^\\d{2}:\\d{2}$/.test(time)) {
+          return withCors(request, env, json({ ok: false, error: 'Please provide a valid phone number, date and time.', requestId }, 400));
+        }
+        const rawIdempotencyKey = request.headers.get('Idempotency-Key') || '';
+        if (rawIdempotencyKey && !/^[A-Za-z0-9_-]{16,128}$/.test(rawIdempotencyKey)) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid request idempotency key.', requestId }, 400));
+        }
+        const now = Math.floor(Date.now() / 1000);
+        const idemKey = rawIdempotencyKey ? await digestHex(rawIdempotencyKey) : '';
+        if (idemKey) {
+          const prior = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+            .bind(idemKey, 'appointment.create', now).first();
+          if (prior) return withCors(request, env, json(JSON.parse(prior.response_json), 200));
+        }
+        const id = crypto.randomUUID();
+        const guestCount = Math.min(4, Math.max(1, Number.parseInt(body.guestCount || body.guests || 1, 10) || 1));
+        const people = Array.isArray(body.people) ? body.people.slice(0, 4).map((person, index) => ({
+          person: Math.min(4, Math.max(1, Number.parseInt(person?.person || index + 1, 10) || index + 1)),
+          service: String(person?.service || '').slice(0, 200),
+          offer: String(person?.offer || '').slice(0, 200),
+          duration: String(person?.duration || '').slice(0, 80),
+          regularRate: String(person?.regularRate || '').slice(0, 80),
+          finalPrice: String(person?.finalPrice || '').slice(0, 80),
+          offerType: String(person?.offerType || '').slice(0, 40),
+          offerRate: String(person?.offerRate || '').slice(0, 80),
+          offerPercent: Number.isFinite(Number(person?.offerPercent)) ? Number(person.offerPercent) : null
+        })) : [];
+        if (people.length && people.length !== guestCount) {
+          return withCors(request, env, json({ ok: false, error: 'Guest details do not match the selected guest count.', requestId }, 400));
+        }
+        const payload = { ok: true, id, status: 'Pending', requestId };
+        const appointmentInsert = env.DB.prepare(`INSERT INTO appointments
+          (id,name,phone,email,service,offer,guests,guest_count,people,selected_duration,regular_rate,date,time,final_price,total_amount,status,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+          .bind(id, String(body.name || '').slice(0, 200), phone, String(body.email || '').slice(0, 254),
+            String(body.service || '').slice(0, 500), String(body.offer || '').slice(0, 500),
+            guestCount, guestCount, JSON.stringify(people), String(body.selectedDuration || '').slice(0, 500),
+            String(body.regularRate || '').slice(0, 500), date, time,
+            String(body.finalPrice || '').slice(0, 100), Number.isFinite(Number(body.totalAmount)) ? Number(body.totalAmount) : null,
+            'Pending');
+        if (idemKey) {
+          try {
+            await env.DB.batch([
+              appointmentInsert,
+              env.DB.prepare('INSERT INTO idempotency_keys (key,operation,response_json,created_at,expires_at) VALUES (?,?,?,?,?)')
+                .bind(idemKey, 'appointment.create', JSON.stringify(payload), now, now + 7 * 86400)
+            ]);
+          } catch (error) {
+            const raced = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+              .bind(idemKey, 'appointment.create', now).first();
+            if (raced) return withCors(request, env, json(JSON.parse(raced.response_json), 200));
+            throw error;
+          }
+        } else {
+          await appointmentInsert.run();
+        }
+        const saved = await env.DB.prepare('SELECT id,status FROM appointments WHERE id = ?').bind(id).first();
+        if (!saved || saved.status !== 'Pending') throw new Error('Appointment read-back verification failed.');
+        return withCors(request, env, json(payload, 201));
+      } catch (error) {
+        console.error('appointment_create_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Appointment could not be saved. Please try again.', requestId }, 503));
+      }
+    }
+
+    if (path === '/api/admin/login' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        if (!env.ADMIN_EMAIL || !env.SESSION_SECRET) {
+          return withCors(request, env, json({ ok: false, error: 'Admin login is not configured.', requestId }, 503));
+        }
+        const adminCredential = await env.DB.prepare('SELECT password_hash FROM admin_credentials WHERE email = ?').bind(String(env.ADMIN_EMAIL).toLowerCase()).first();
+        if (!adminCredential?.password_hash) return withCors(request, env, json({ ok: false, error: 'Admin credentials are not provisioned.', requestId }, 503));
+        const body = await readJson(request, 10_000);
+        const email = String(body.email || '').trim().toLowerCase();
+        const password = String(body.password || '');
+        if (await isLoginRateLimited(env, request, email)) {
+          return withCors(request, env, json({ ok: false, error: 'Too many login attempts. Please wait 15 minutes and try again.', requestId }, 429, { 'Retry-After': '900' }));
+        }
+        const valid = !!email && email.length <= 254 && !!password && password.length <= 1024 &&
+          equalConstantTime(email, String(env.ADMIN_EMAIL).toLowerCase()) &&
+          await verifyPassword(password, adminCredential.password_hash);
+        await recordLoginAttempt(env, request, email, valid);
+        if (!valid) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid admin ID or password.', requestId }, 401));
+        }
+        const token = await createSession(env, env.ADMIN_EMAIL);
+        return withCors(request, env, json({ ok: true, token, expiresIn: SESSION_SECONDS, requestId }, 200, { 'Set-Cookie': cookie(token, SESSION_SECONDS) }));
+      } catch (error) {
+        console.error('admin_login_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Invalid login request.', requestId }, 400));
+      }
+    }
+
+    if (path === '/api/admin/session' && method === 'GET') {
+      const session = await requireAdmin(request, env);
+      return withCors(request, env, json(session ? { ok: true, email: session.e, requestId } : { ok: false, requestId }, session ? 200 : 401));
+    }
+
+    if (path === '/api/admin/logout' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      const session = await requireAdmin(request, env);
+      if (session?.tokenHash) {
+        await env.DB.prepare('UPDATE admin_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
+          .bind(Math.floor(Date.now() / 1000), session.tokenHash).run();
+      }
+      return withCors(request, env, json({ ok: true, requestId }, 200, { 'Set-Cookie': cookie('', 0) }));
+    }
+
+    if (path.startsWith('/api/admin/')) {
+      const session = await requireAdmin(request, env);
+      if (!session) return withCors(request, env, json({ ok: false, error: 'Admin authentication required.', requestId }, 401));
+      if (!requireMutationOrigin(request, env) && method !== 'GET') return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+
+      if (path === '/api/admin/site-content' && method === 'PUT') {
+        try {
+          const body = await readJson(request);
+          const data = body.data;
+          if (!data || typeof data !== 'object' || Array.isArray(data)) return withCors(request, env, json({ ok: false, error: 'Site content must be a JSON object.', requestId }, 400));
+          const encoded = JSON.stringify(data);
+          if (encoded.length > MAX_BODY_BYTES) return withCors(request, env, json({ ok: false, error: 'Site content is too large.', requestId }, 413));
+          const current = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (current && !body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'A content version is required to prevent overwriting newer edits.', requestId }, 428));
+          }
+          if (current && body.expectedUpdatedAt !== current.updated_at) {
+            return withCors(request, env, json({ ok: false, error: 'Content changed since it was loaded. Refresh before saving.', updatedAt: current.updated_at, requestId }, 409));
+          }
+          if (!current && body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'The content record changed. Refresh before saving.', requestId }, 409));
+          }
+          const updatedAt = new Date().toISOString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO site_content (id,data,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at').bind(encoded, updatedAt),
+            env.DB.prepare('INSERT INTO site_content_revisions (data,actor,request_id) VALUES (?,?,?)').bind(encoded, session.e, requestId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'site_content.write', 'site_content:1')
+          ]);
+          const saved = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (!saved || saved.data !== encoded) throw new Error('Read-back verification failed.');
+          return withCors(request, env, json({ ok: true, data: JSON.parse(saved.data), updatedAt: saved.updated_at, requestId }));
+        } catch (error) {
+          console.error('site_content_write_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Site content save could not be verified.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/appointments' && method === 'GET') {
+        try {
+          const status = String(url.searchParams.get('status') || '');
+          const limit = Math.min(500, Math.max(1, Number.parseInt(url.searchParams.get('limit') || '100', 10) || 100));
+          const result = status
+            ? await env.DB.prepare('SELECT * FROM appointments WHERE status = ? ORDER BY created_at DESC LIMIT ?').bind(status, limit).all()
+            : await env.DB.prepare('SELECT * FROM appointments ORDER BY created_at DESC LIMIT ?').bind(limit).all();
+          return withCors(request, env, json({ ok: true, appointments: result.results || [], requestId }));
+        } catch (error) {
+          console.error('appointments_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointments could not be loaded.', requestId }, 503));
+        }
+      }
+
+
+
+      if (path === '/api/admin/backups' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT id,status,byte_length,created_at,verified_at,notes FROM backup_runs ORDER BY created_at DESC LIMIT 50').all();
+          return withCors(request, env, json({ ok: true, backups: result.results || [], requestId }));
+        } catch (error) {
+          console.error('backup_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup history could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/backups' && method === 'POST') {
+        const backupId = crypto.randomUUID();
+        const objectKey = 'd1:' + backupId;
+        try {
+          const [content, appointments, assets] = await Promise.all([
+            env.DB.prepare('SELECT data,updated_at FROM site_content WHERE id = 1').first(),
+            env.DB.prepare('SELECT * FROM appointments ORDER BY created_at ASC').all(),
+            env.DB.prepare('SELECT object_key,public_url,content_type,byte_length,purpose,created_at FROM storage_objects ORDER BY created_at ASC').all()
+          ]);
+          if (!content) return withCors(request, env, json({ ok: false, error: 'There is no saved site content to back up yet.', requestId }, 409));
+          const snapshot = {
+            format: 'the-ark-spa-backup',
+            version: 1,
+            backupId,
+            createdAt: new Date().toISOString(),
+            siteContent: { data: JSON.parse(content.data), updatedAt: content.updated_at },
+            appointments: appointments.results || [],
+            assets: assets.results || []
+          };
+          const encoded = JSON.stringify(snapshot);
+          const bytes = new TextEncoder().encode(encoded);
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          await env.DB.prepare("INSERT INTO backup_runs (id,status,object_key,content_sha256,byte_length,snapshot_json,notes) VALUES (?,'started',?,?,?,?,'')").bind(backupId, objectKey, checksum, bytes.byteLength, encoded).run();
+          const stored = await env.DB.prepare('SELECT snapshot_json FROM backup_runs WHERE id = ?').bind(backupId).first();
+          if (!stored || stored.snapshot_json !== encoded) throw new Error('Backup read-back verification failed.');
+          const storedChecksum = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stored.snapshot_json)));
+          if (storedChecksum !== checksum) throw new Error('Backup checksum verification failed.');
+          await env.DB.batch([
+            env.DB.prepare("UPDATE backup_runs SET status='verified',verified_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(backupId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'backup.create', backupId)
+          ]);
+          return withCors(request, env, json({ ok: true, backup: { id: backupId, status: 'verified', byteLength: bytes.byteLength, sha256: checksum, createdAt: snapshot.createdAt }, download: snapshot, requestId }, 201));
+        } catch (error) {
+          try { await env.DB.prepare("UPDATE backup_runs SET status='failed',notes=? WHERE id=?").bind(String(error).slice(0, 500), backupId).run(); } catch (recordError) { console.error('backup_failure_record_failed', requestId, String(recordError)); }
+          console.error('backup_create_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup could not be completed and verified.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT object_key, public_url, content_type, byte_length, purpose, created_at FROM storage_objects ORDER BY created_at DESC LIMIT 500').all();
+          return withCors(request, env, json({ ok: true, assets: result.results || [], requestId }));
+        } catch (error) {
+          console.error('asset_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Assets could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'POST') {
+        let objectKey = '';
+        try {
+          const form = await request.formData();
+          const file = form.get('file');
+          const purpose = String(form.get('purpose') || '');
+          const allowed = { gallery: ['image/jpeg','image/png','image/webp'], hero: ['image/jpeg','image/png','image/webp'], logo: ['image/jpeg','image/png','image/webp'] };
+          if (!file || typeof file.stream !== 'function' || !allowed[purpose]?.includes(file.type) || file.size < 1 || file.size > 1 * 1024 * 1024) {
+            return withCors(request, env, json({ ok: false, error: 'Choose a JPG, PNG or WebP image up to 1 MB.', requestId }, 400));
+          }
+          const extension = ({'image/jpeg':'jpg','image/png':'png','image/webp':'webp'})[file.type];
+          objectKey = 'ark/' + purpose + '/' + new Date().getUTCFullYear() + '/' + crypto.randomUUID() + '.' + extension;
+          const bytes = await file.arrayBuffer();
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          const publicUrl = new URL('/assets/' + objectKey.split('/').map(encodeURIComponent).join('/'), request.url).toString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by, file_data) VALUES (?, ?, ?, ?, ?, ?, ?)')
+              .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e, new Uint8Array(bytes)),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)')
+              .bind(requestId, session.e, 'asset.upload', objectKey)
+          ]);
+          return withCors(request, env, json({ ok: true, asset: { object_key: objectKey, public_url: publicUrl, content_type: file.type, byte_length: file.size, purpose }, requestId }, 201));
+        } catch (error) {
+          if (objectKey) {
+            try { await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run(); } catch (cleanupError) { console.error('asset_metadata_cleanup_failed', requestId, String(cleanupError)); }
+          }
+          console.error('asset_upload_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Image upload could not be verified.', requestId }, 503));
+        }
+      }
+
+      const assetPrefix = '/api/admin/assets/';
+      const assetKeyPath = path.startsWith(assetPrefix) ? path.slice(assetPrefix.length) : '';
+      if (assetKeyPath && method === 'DELETE') {
+        try {
+          const objectKey = decodeURIComponent(assetKeyPath);
+          const keyParts = objectKey.split('/');
+          if (keyParts.length !== 4 || keyParts[0] !== 'ark' || !['gallery','hero','logo'].includes(keyParts[1]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[2]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[3]) || objectKey.includes('..')) return withCors(request, env, json({ ok: false, error: 'Invalid asset key.', requestId }, 400));
+          const existing = await env.DB.prepare('SELECT object_key FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+          if (!existing) return withCors(request, env, json({ ok: false, error: 'Asset not found.', requestId }, 404));
+          await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run();
+          await audit(env, session.e, 'asset.delete', objectKey, requestId);
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('asset_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Asset deletion could not be verified.', requestId }, 503));
+        }
+      }
+
+      const appointmentMatch = path.match(/^\/api\/admin\/appointments\/([0-9a-f-]{36})$/i);
+
+      if (appointmentMatch && method === 'DELETE') {
+        try {
+          const results = await env.DB.batch([
+            env.DB.prepare('DELETE FROM appointments WHERE id = ?').bind(appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.delete', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment deletion could not be verified.', requestId }, 503));
+        }
+      }
+
+      if (appointmentMatch && method === 'PATCH') {
+        try {
+          const body = await readJson(request, 10_000);
+          const status = String(body.status || '');
+          if (!['Pending','Confirmed','Completed','Cancelled','No-show'].includes(status)) return withCors(request, env, json({ ok: false, error: 'Invalid appointment status.', requestId }, 400));
+          const results = await env.DB.batch([
+            env.DB.prepare(`UPDATE appointments SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).bind(status, appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.status', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_update_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment update could not be verified.', requestId }, 503));
+        }
+      }
+    }
+
+    return withCors(request, env, json({ ok: false, error: 'Not found.', requestId }, 404));
+  }
+};
+ + bytesToHex(salt) + '
+async function createSession(env, email) {
+  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
+  const payload = b64url(new TextEncoder().encode(JSON.stringify({ e: email, exp: expiresAt, n: crypto.randomUUID() })));
+  const token = payload + '.' + b64url(await hmac(env.SESSION_SECRET, payload));
+  const tokenHash = await digestHex(token);
+  await env.DB.prepare('INSERT INTO admin_sessions (token_hash, admin_email, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(tokenHash, email, Math.floor(Date.now() / 1000), expiresAt).run();
+  return token;
+}
+async function readSession(request, env) {
+  const raw = request.headers.get('Cookie') || '';
+  const cookieMatch = raw.match(/(?:^|;\s*)ark_admin_session=([^;]+)/);
+  const bearerMatch = request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i);
+  const token = bearerMatch?.[1] || cookieMatch?.[1] || '';
+  if (!token || !env.SESSION_SECRET) return null;
+  const parts = token.split('.');
+  if (parts.length !== 2) return null;
+  const expected = b64url(await hmac(env.SESSION_SECRET, parts[0]));
+  if (!equalConstantTime(expected, parts[1])) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(unb64url(parts[0])));
+    if (!payload.e || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (payload.e !== env.ADMIN_EMAIL) return null;
+    const tokenHash = await digestHex(token);
+    const stored = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND admin_email = ? AND expires_at > ? AND revoked_at IS NULL')
+      .bind(tokenHash, payload.e, Math.floor(Date.now() / 1000)).first();
+    if (!stored) return null;
+    return { ...payload, tokenHash };
+  } catch { return null; }
+}
+async function readJson(request, maxBytes = MAX_BODY_BYTES) {
+  const length = Number(request.headers.get('Content-Length') || 0);
+  if (length > maxBytes) throw new Error('Request body is too large.');
+  const text = await request.text();
+  if (new TextEncoder().encode(text).length > maxBytes) throw new Error('Request body is too large.');
+  return JSON.parse(text);
+}
+function requireMutationOrigin(request, env) {
+  return requestOriginAllowed(request, env);
+}
+async function requireAdmin(request, env) {
+  return readSession(request, env);
+}
+async function audit(env, actor, action, resource, requestId) {
+  try {
+    await env.DB.prepare('INSERT INTO audit_events (request_id, actor, action, resource) VALUES (?, ?, ?, ?)')
+      .bind(requestId, actor, action, resource).run();
+  } catch (error) {
+    // Audit failure is intentionally visible in logs; sensitive mutation callers decide whether to fail closed.
+    console.error('audit_write_failed', action, resource, String(error));
+    throw new Error('Audit record could not be written; operation was not confirmed.');
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const requestId = crypto.randomUUID();
+    const path = url.pathname;
+    const method = request.method.toUpperCase();
+
+    if (method === 'OPTIONS') {
+      const origin = request.headers.get('Origin');
+      if (!origin || !allowedOrigins(env).includes(origin)) return json({ ok: false, error: 'Origin not allowed.' }, 403);
+      return new Response(null, { status: 204, headers: responseHeaders(request, env, {
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID, Idempotency-Key, Authorization',
+        'Access-Control-Max-Age': '600'
+      }) });
+    }
+
+    if (path.startsWith('/assets/') && method === 'GET') {
+      try {
+        const objectKey = decodeURIComponent(path.slice('/assets/'.length));
+        const parts = objectKey.split('/');
+        if (parts.length !== 4 || parts[0] !== 'ark' || !['gallery','hero','logo'].includes(parts[1]) || !/^[0-9]{4}$/.test(parts[2]) || !/^[A-Za-z0-9._-]+$/.test(parts[3]) || objectKey.includes('..')) {
+          return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        }
+        const asset = await env.DB.prepare('SELECT file_data, content_type FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+        if (!asset || !asset.file_data) return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        const headers = new Headers({ 'Content-Type': asset.content_type, 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff' });
+        return new Response(asset.file_data, { status: 200, headers });
+      } catch (error) {
+        console.error('public_asset_read_failed', requestId, String(error));
+        return new Response('Asset unavailable.', { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      }
+    }
+
+    if (path === '/api/health' && method === 'GET') {
+      let d1 = false;
+      try { if (env.DB) { await env.DB.prepare('SELECT 1 AS ready').first(); d1 = true; } } catch (error) {
+        console.error('health_d1_check_failed', requestId, String(error));
+      }
+      const status = d1 ? 'healthy' : 'unavailable';
+      return withCors(request, env, json({ ok: d1, status, service: 'the-ark-spa-api', dependencies: { d1, imageStorage: d1, backups: d1 }, requestId }, d1 ? 200 : 503));
+    }
+    if (!env.DB) return withCors(request, env, json({ ok: false, error: 'Database binding is not configured.', requestId }, 503));
+
+    if (path === '/api/public/site-content' && method === 'GET') {
+      try {
+        const row = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+        if (!row) return withCors(request, env, json({ ok: false, error: 'Site content has not been imported yet.', requestId }, 503));
+        return withCors(request, env, json({ ok: true, data: JSON.parse(row.data), updatedAt: row.updated_at, requestId }));
+      } catch (error) {
+        console.error('public_content_read_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Site content is temporarily unavailable.', requestId }, 503));
+      }
+    }
+
+    if (path === '/api/appointments' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        const body = await readJson(request, 20_000);
+        const phone = String(body.phone || '').trim();
+        const date = String(body.date || '').trim();
+        const time = String(body.time || '').trim();
+        if (!phone || phone.length > 30 || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !/^\\d{2}:\\d{2}$/.test(time)) {
+          return withCors(request, env, json({ ok: false, error: 'Please provide a valid phone number, date and time.', requestId }, 400));
+        }
+        const rawIdempotencyKey = request.headers.get('Idempotency-Key') || '';
+        if (rawIdempotencyKey && !/^[A-Za-z0-9_-]{16,128}$/.test(rawIdempotencyKey)) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid request idempotency key.', requestId }, 400));
+        }
+        const now = Math.floor(Date.now() / 1000);
+        const idemKey = rawIdempotencyKey ? await digestHex(rawIdempotencyKey) : '';
+        if (idemKey) {
+          const prior = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+            .bind(idemKey, 'appointment.create', now).first();
+          if (prior) return withCors(request, env, json(JSON.parse(prior.response_json), 200));
+        }
+        const id = crypto.randomUUID();
+        const guestCount = Math.min(4, Math.max(1, Number.parseInt(body.guestCount || body.guests || 1, 10) || 1));
+        const people = Array.isArray(body.people) ? body.people.slice(0, 4).map((person, index) => ({
+          person: Math.min(4, Math.max(1, Number.parseInt(person?.person || index + 1, 10) || index + 1)),
+          service: String(person?.service || '').slice(0, 200),
+          offer: String(person?.offer || '').slice(0, 200),
+          duration: String(person?.duration || '').slice(0, 80),
+          regularRate: String(person?.regularRate || '').slice(0, 80),
+          finalPrice: String(person?.finalPrice || '').slice(0, 80),
+          offerType: String(person?.offerType || '').slice(0, 40),
+          offerRate: String(person?.offerRate || '').slice(0, 80),
+          offerPercent: Number.isFinite(Number(person?.offerPercent)) ? Number(person.offerPercent) : null
+        })) : [];
+        if (people.length && people.length !== guestCount) {
+          return withCors(request, env, json({ ok: false, error: 'Guest details do not match the selected guest count.', requestId }, 400));
+        }
+        const payload = { ok: true, id, status: 'Pending', requestId };
+        const appointmentInsert = env.DB.prepare(`INSERT INTO appointments
+          (id,name,phone,email,service,offer,guests,guest_count,people,selected_duration,regular_rate,date,time,final_price,total_amount,status,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+          .bind(id, String(body.name || '').slice(0, 200), phone, String(body.email || '').slice(0, 254),
+            String(body.service || '').slice(0, 500), String(body.offer || '').slice(0, 500),
+            guestCount, guestCount, JSON.stringify(people), String(body.selectedDuration || '').slice(0, 500),
+            String(body.regularRate || '').slice(0, 500), date, time,
+            String(body.finalPrice || '').slice(0, 100), Number.isFinite(Number(body.totalAmount)) ? Number(body.totalAmount) : null,
+            'Pending');
+        if (idemKey) {
+          try {
+            await env.DB.batch([
+              appointmentInsert,
+              env.DB.prepare('INSERT INTO idempotency_keys (key,operation,response_json,created_at,expires_at) VALUES (?,?,?,?,?)')
+                .bind(idemKey, 'appointment.create', JSON.stringify(payload), now, now + 7 * 86400)
+            ]);
+          } catch (error) {
+            const raced = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+              .bind(idemKey, 'appointment.create', now).first();
+            if (raced) return withCors(request, env, json(JSON.parse(raced.response_json), 200));
+            throw error;
+          }
+        } else {
+          await appointmentInsert.run();
+        }
+        const saved = await env.DB.prepare('SELECT id,status FROM appointments WHERE id = ?').bind(id).first();
+        if (!saved || saved.status !== 'Pending') throw new Error('Appointment read-back verification failed.');
+        return withCors(request, env, json(payload, 201));
+      } catch (error) {
+        console.error('appointment_create_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Appointment could not be saved. Please try again.', requestId }, 503));
+      }
+    }
+
+    if (path === '/api/admin/login' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      try {
+        if (!env.ADMIN_EMAIL || !env.SESSION_SECRET) {
+          return withCors(request, env, json({ ok: false, error: 'Admin login is not configured.', requestId }, 503));
+        }
+        const adminCredential = await env.DB.prepare('SELECT password_hash FROM admin_credentials WHERE email = ?').bind(String(env.ADMIN_EMAIL).toLowerCase()).first();
+        if (!adminCredential?.password_hash) return withCors(request, env, json({ ok: false, error: 'Admin credentials are not provisioned.', requestId }, 503));
+        const body = await readJson(request, 10_000);
+        const email = String(body.email || '').trim().toLowerCase();
+        const password = String(body.password || '');
+        if (await isLoginRateLimited(env, request, email)) {
+          return withCors(request, env, json({ ok: false, error: 'Too many login attempts. Please wait 15 minutes and try again.', requestId }, 429, { 'Retry-After': '900' }));
+        }
+        const valid = !!email && email.length <= 254 && !!password && password.length <= 1024 &&
+          equalConstantTime(email, String(env.ADMIN_EMAIL).toLowerCase()) &&
+          await verifyPassword(password, adminCredential.password_hash);
+        await recordLoginAttempt(env, request, email, valid);
+        if (!valid) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid admin ID or password.', requestId }, 401));
+        }
+        const token = await createSession(env, env.ADMIN_EMAIL);
+        return withCors(request, env, json({ ok: true, token, expiresIn: SESSION_SECONDS, requestId }, 200, { 'Set-Cookie': cookie(token, SESSION_SECONDS) }));
+      } catch (error) {
+        console.error('admin_login_failed', requestId, String(error));
+        return withCors(request, env, json({ ok: false, error: 'Invalid login request.', requestId }, 400));
+      }
+    }
+
+    if (path === '/api/admin/session' && method === 'GET') {
+      const session = await requireAdmin(request, env);
+      return withCors(request, env, json(session ? { ok: true, email: session.e, requestId } : { ok: false, requestId }, session ? 200 : 401));
+    }
+
+    if (path === '/api/admin/logout' && method === 'POST') {
+      if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      const session = await requireAdmin(request, env);
+      if (session?.tokenHash) {
+        await env.DB.prepare('UPDATE admin_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
+          .bind(Math.floor(Date.now() / 1000), session.tokenHash).run();
+      }
+      return withCors(request, env, json({ ok: true, requestId }, 200, { 'Set-Cookie': cookie('', 0) }));
+    }
+
+    if (path.startsWith('/api/admin/')) {
+      const session = await requireAdmin(request, env);
+      if (!session) return withCors(request, env, json({ ok: false, error: 'Admin authentication required.', requestId }, 401));
+      if (!requireMutationOrigin(request, env) && method !== 'GET') return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+
+      if (path === '/api/admin/site-content' && method === 'PUT') {
+        try {
+          const body = await readJson(request);
+          const data = body.data;
+          if (!data || typeof data !== 'object' || Array.isArray(data)) return withCors(request, env, json({ ok: false, error: 'Site content must be a JSON object.', requestId }, 400));
+          const encoded = JSON.stringify(data);
+          if (encoded.length > MAX_BODY_BYTES) return withCors(request, env, json({ ok: false, error: 'Site content is too large.', requestId }, 413));
+          const current = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (current && !body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'A content version is required to prevent overwriting newer edits.', requestId }, 428));
+          }
+          if (current && body.expectedUpdatedAt !== current.updated_at) {
+            return withCors(request, env, json({ ok: false, error: 'Content changed since it was loaded. Refresh before saving.', updatedAt: current.updated_at, requestId }, 409));
+          }
+          if (!current && body.expectedUpdatedAt) {
+            return withCors(request, env, json({ ok: false, error: 'The content record changed. Refresh before saving.', requestId }, 409));
+          }
+          const updatedAt = new Date().toISOString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO site_content (id,data,updated_at) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at').bind(encoded, updatedAt),
+            env.DB.prepare('INSERT INTO site_content_revisions (data,actor,request_id) VALUES (?,?,?)').bind(encoded, session.e, requestId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'site_content.write', 'site_content:1')
+          ]);
+          const saved = await env.DB.prepare('SELECT data, updated_at FROM site_content WHERE id = 1').first();
+          if (!saved || saved.data !== encoded) throw new Error('Read-back verification failed.');
+          return withCors(request, env, json({ ok: true, data: JSON.parse(saved.data), updatedAt: saved.updated_at, requestId }));
+        } catch (error) {
+          console.error('site_content_write_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Site content save could not be verified.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/appointments' && method === 'GET') {
+        try {
+          const status = String(url.searchParams.get('status') || '');
+          const limit = Math.min(500, Math.max(1, Number.parseInt(url.searchParams.get('limit') || '100', 10) || 100));
+          const result = status
+            ? await env.DB.prepare('SELECT * FROM appointments WHERE status = ? ORDER BY created_at DESC LIMIT ?').bind(status, limit).all()
+            : await env.DB.prepare('SELECT * FROM appointments ORDER BY created_at DESC LIMIT ?').bind(limit).all();
+          return withCors(request, env, json({ ok: true, appointments: result.results || [], requestId }));
+        } catch (error) {
+          console.error('appointments_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointments could not be loaded.', requestId }, 503));
+        }
+      }
+
+
+
+      if (path === '/api/admin/backups' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT id,status,byte_length,created_at,verified_at,notes FROM backup_runs ORDER BY created_at DESC LIMIT 50').all();
+          return withCors(request, env, json({ ok: true, backups: result.results || [], requestId }));
+        } catch (error) {
+          console.error('backup_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup history could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/backups' && method === 'POST') {
+        const backupId = crypto.randomUUID();
+        const objectKey = 'd1:' + backupId;
+        try {
+          const [content, appointments, assets] = await Promise.all([
+            env.DB.prepare('SELECT data,updated_at FROM site_content WHERE id = 1').first(),
+            env.DB.prepare('SELECT * FROM appointments ORDER BY created_at ASC').all(),
+            env.DB.prepare('SELECT object_key,public_url,content_type,byte_length,purpose,created_at FROM storage_objects ORDER BY created_at ASC').all()
+          ]);
+          if (!content) return withCors(request, env, json({ ok: false, error: 'There is no saved site content to back up yet.', requestId }, 409));
+          const snapshot = {
+            format: 'the-ark-spa-backup',
+            version: 1,
+            backupId,
+            createdAt: new Date().toISOString(),
+            siteContent: { data: JSON.parse(content.data), updatedAt: content.updated_at },
+            appointments: appointments.results || [],
+            assets: assets.results || []
+          };
+          const encoded = JSON.stringify(snapshot);
+          const bytes = new TextEncoder().encode(encoded);
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          await env.DB.prepare("INSERT INTO backup_runs (id,status,object_key,content_sha256,byte_length,snapshot_json,notes) VALUES (?,'started',?,?,?,?,'')").bind(backupId, objectKey, checksum, bytes.byteLength, encoded).run();
+          const stored = await env.DB.prepare('SELECT snapshot_json FROM backup_runs WHERE id = ?').bind(backupId).first();
+          if (!stored || stored.snapshot_json !== encoded) throw new Error('Backup read-back verification failed.');
+          const storedChecksum = bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stored.snapshot_json)));
+          if (storedChecksum !== checksum) throw new Error('Backup checksum verification failed.');
+          await env.DB.batch([
+            env.DB.prepare("UPDATE backup_runs SET status='verified',verified_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(backupId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'backup.create', backupId)
+          ]);
+          return withCors(request, env, json({ ok: true, backup: { id: backupId, status: 'verified', byteLength: bytes.byteLength, sha256: checksum, createdAt: snapshot.createdAt }, download: snapshot, requestId }, 201));
+        } catch (error) {
+          try { await env.DB.prepare("UPDATE backup_runs SET status='failed',notes=? WHERE id=?").bind(String(error).slice(0, 500), backupId).run(); } catch (recordError) { console.error('backup_failure_record_failed', requestId, String(recordError)); }
+          console.error('backup_create_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup could not be completed and verified.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT object_key, public_url, content_type, byte_length, purpose, created_at FROM storage_objects ORDER BY created_at DESC LIMIT 500').all();
+          return withCors(request, env, json({ ok: true, assets: result.results || [], requestId }));
+        } catch (error) {
+          console.error('asset_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Assets could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'POST') {
+        let objectKey = '';
+        try {
+          const form = await request.formData();
+          const file = form.get('file');
+          const purpose = String(form.get('purpose') || '');
+          const allowed = { gallery: ['image/jpeg','image/png','image/webp'], hero: ['image/jpeg','image/png','image/webp'], logo: ['image/jpeg','image/png','image/webp'] };
+          if (!file || typeof file.stream !== 'function' || !allowed[purpose]?.includes(file.type) || file.size < 1 || file.size > 1 * 1024 * 1024) {
+            return withCors(request, env, json({ ok: false, error: 'Choose a JPG, PNG or WebP image up to 1 MB.', requestId }, 400));
+          }
+          const extension = ({'image/jpeg':'jpg','image/png':'png','image/webp':'webp'})[file.type];
+          objectKey = 'ark/' + purpose + '/' + new Date().getUTCFullYear() + '/' + crypto.randomUUID() + '.' + extension;
+          const bytes = await file.arrayBuffer();
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          const publicUrl = new URL('/assets/' + objectKey.split('/').map(encodeURIComponent).join('/'), request.url).toString();
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by, file_data) VALUES (?, ?, ?, ?, ?, ?, ?)')
+              .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e, new Uint8Array(bytes)),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)')
+              .bind(requestId, session.e, 'asset.upload', objectKey)
+          ]);
+          return withCors(request, env, json({ ok: true, asset: { object_key: objectKey, public_url: publicUrl, content_type: file.type, byte_length: file.size, purpose }, requestId }, 201));
+        } catch (error) {
+          if (objectKey) {
+            try { await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run(); } catch (cleanupError) { console.error('asset_metadata_cleanup_failed', requestId, String(cleanupError)); }
+          }
+          console.error('asset_upload_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Image upload could not be verified.', requestId }, 503));
+        }
+      }
+
+      const assetPrefix = '/api/admin/assets/';
+      const assetKeyPath = path.startsWith(assetPrefix) ? path.slice(assetPrefix.length) : '';
+      if (assetKeyPath && method === 'DELETE') {
+        try {
+          const objectKey = decodeURIComponent(assetKeyPath);
+          const keyParts = objectKey.split('/');
+          if (keyParts.length !== 4 || keyParts[0] !== 'ark' || !['gallery','hero','logo'].includes(keyParts[1]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[2]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[3]) || objectKey.includes('..')) return withCors(request, env, json({ ok: false, error: 'Invalid asset key.', requestId }, 400));
+          const existing = await env.DB.prepare('SELECT object_key FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+          if (!existing) return withCors(request, env, json({ ok: false, error: 'Asset not found.', requestId }, 404));
+          await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run();
+          await audit(env, session.e, 'asset.delete', objectKey, requestId);
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('asset_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Asset deletion could not be verified.', requestId }, 503));
+        }
+      }
+
+      const appointmentMatch = path.match(/^\/api\/admin\/appointments\/([0-9a-f-]{36})$/i);
+
+      if (appointmentMatch && method === 'DELETE') {
+        try {
+          const results = await env.DB.batch([
+            env.DB.prepare('DELETE FROM appointments WHERE id = ?').bind(appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.delete', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment deletion could not be verified.', requestId }, 503));
+        }
+      }
+
+      if (appointmentMatch && method === 'PATCH') {
+        try {
+          const body = await readJson(request, 10_000);
+          const status = String(body.status || '');
+          if (!['Pending','Confirmed','Completed','Cancelled','No-show'].includes(status)) return withCors(request, env, json({ ok: false, error: 'Invalid appointment status.', requestId }, 400));
+          const results = await env.DB.batch([
+            env.DB.prepare(`UPDATE appointments SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).bind(status, appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.status', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_update_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment update could not be verified.', requestId }, 503));
+        }
+      }
+    }
+
+    return withCors(request, env, json({ ok: false, error: 'Not found.', requestId }, 404));
+  }
+};
+ + bytesToHex(bits);
 }
 async function createSession(env, email) {
   const expiresAt = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
