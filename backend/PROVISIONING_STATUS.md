@@ -18,6 +18,7 @@ Last checked: 2026-11-23 (Asia/Kolkata)
   - `site_content_revisions`
   - `storage_objects`
 - Added D1 fields for per-person booking details (`guest_count`, `people`, `selected_duration`, `regular_rate`) so the existing multi-guest Admin appointment view/export retains its data.
+- Ran a temporary appointment insert/read-back/delete smoke test against those columns; it passed and the test row was removed.
 - Backend source is on GitHub `main`; Worker JavaScript syntax was checked after the current changes.
 - Added provider-neutral browser API client, Worker-backed Admin auth adapter, and a public app adapter with last-known-good local cache.
 - Staged alternate `.worker.html` pages for the public pages, booking, login and Admin, plus staged login/navigation helpers. Inline scripts were syntax-checked. The original live HTML files remain unchanged.
