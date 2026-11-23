@@ -185,7 +185,7 @@ export default {
       const origin = request.headers.get('Origin');
       if (!origin || !allowedOrigins(env).includes(origin)) return json({ ok: false, error: 'Origin not allowed.' }, 403);
       return new Response(null, { status: 204, headers: responseHeaders(request, env, {
-        'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID',
         'Access-Control-Max-Age': '600'
       }) });
@@ -311,7 +311,78 @@ export default {
         }
       }
 
+
+      if (path === '/api/admin/assets' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT object_key, public_url, content_type, byte_length, purpose, created_at FROM storage_objects ORDER BY created_at DESC LIMIT 500').all();
+          return withCors(request, env, json({ ok: true, assets: result.results || [], requestId }));
+        } catch (error) {
+          console.error('asset_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Assets could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/assets' && method === 'POST') {
+        if (!env.ASSETS || !env.ASSET_PUBLIC_BASE_URL) return withCors(request, env, json({ ok: false, error: 'Image storage is not configured yet.', requestId }, 503));
+        let objectKey = '';
+        try {
+          const form = await request.formData();
+          const file = form.get('file');
+          const purpose = String(form.get('purpose') || '');
+          const allowed = { gallery: ['image/jpeg','image/png','image/webp'], hero: ['image/jpeg','image/png','image/webp'], logo: ['image/jpeg','image/png','image/webp'] };
+          if (!file || typeof file.stream !== 'function' || !allowed[purpose]?.includes(file.type) || file.size < 1 || file.size > 8 * 1024 * 1024) {
+            return withCors(request, env, json({ ok: false, error: 'Choose a JPG, PNG or WebP image up to 8 MB.', requestId }, 400));
+          }
+          const extension = ({'image/jpeg':'jpg','image/png':'png','image/webp':'webp'})[file.type];
+          objectKey = 'ark/' + purpose + '/' + new Date().getUTCFullYear() + '/' + crypto.randomUUID() + '.' + extension;
+          const bytes = await file.arrayBuffer();
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          await env.ASSETS.put(objectKey, bytes, { httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' }, customMetadata: { purpose, originalName: String(file.name || '').slice(0, 120), sha256: checksum } });
+          const base = String(env.ASSET_PUBLIC_BASE_URL).replace(/\\/+$/, '') + '/';
+          const publicUrl = new URL(objectKey.split('/').map(encodeURIComponent).join('/'), base).toString();
+          await env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+            .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e).run();
+          await audit(env, session.e, 'asset.upload', objectKey, requestId);
+          return withCors(request, env, json({ ok: true, asset: { object_key: objectKey, public_url: publicUrl, content_type: file.type, byte_length: file.size, purpose }, requestId }, 201));
+        } catch (error) {
+          if (objectKey) { try { await env.ASSETS.delete(objectKey); } catch (cleanupError) { console.error('asset_orphan_cleanup_failed', requestId, String(cleanupError)); } }
+          console.error('asset_upload_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Image upload could not be verified.', requestId }, 503));
+        }
+      }
+
+      const assetMatch = path.match(/^\\/api\\/admin\\/assets\\/(.+)$/);
+      if (assetMatch && method === 'DELETE') {
+        try {
+          if (!env.ASSETS) return withCors(request, env, json({ ok: false, error: 'Image storage is not configured.', requestId }, 503));
+          const objectKey = decodeURIComponent(assetMatch[1]);
+          if (!/^ark\\/(gallery|hero|logo)\\/[A-Za-z0-9._/-]+$/.test(objectKey) || objectKey.includes('..')) return withCors(request, env, json({ ok: false, error: 'Invalid asset key.', requestId }, 400));
+          const existing = await env.DB.prepare('SELECT object_key FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
+          if (!existing) return withCors(request, env, json({ ok: false, error: 'Asset not found.', requestId }, 404));
+          await env.ASSETS.delete(objectKey);
+          await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run();
+          await audit(env, session.e, 'asset.delete', objectKey, requestId);
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('asset_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Asset deletion could not be verified.', requestId }, 503));
+        }
+      }
+
       const appointmentMatch = path.match(/^\/api\/admin\/appointments\/([0-9a-f-]{36})$/i);
+
+      if (appointmentMatch && method === 'DELETE') {
+        try {
+          const result = await env.DB.prepare('DELETE FROM appointments WHERE id = ?').bind(appointmentMatch[1]).run();
+          if (!result.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
+          await audit(env, session.e, 'appointment.delete', appointmentMatch[1], requestId);
+          return withCors(request, env, json({ ok: true, requestId }));
+        } catch (error) {
+          console.error('appointment_delete_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Appointment deletion could not be verified.', requestId }, 503));
+        }
+      }
+
       if (appointmentMatch && method === 'PATCH') {
         try {
           const body = await readJson(request, 10_000);
