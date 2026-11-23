@@ -1,26 +1,29 @@
-# The Ark Cloudflare API (staging only)
+# The Ark Spa API — migration/staging backend
 
-This backend is an additive migration scaffold. It does **not** replace the live Supabase-powered site yet.
+This is the independent backend being built to replace the Supabase dependency. The public website and Admin UI are **not cut over yet**. Do not deploy or disable the existing integration until the frontend adapter, data import, authentication, storage and end-to-end checks are complete.
 
 ## Components
 
-- `worker.js`: health endpoint, public content read, appointment intake, admin login/session, content write, and appointment list/status routes.
-- `schema.sql`: D1 schema for site content, appointments, and audit events.
-- `wrangler.toml.example`: resource-binding template. Copy to `wrangler.toml` only after the D1 database and R2 bucket have been created.
+- `worker.js`: public content read, appointment intake, admin authentication/session, content writes, appointment management, asset metadata and R2 image upload/delete.
+- `schema.sql`: base D1 tables for site content, appointments and audit events.
+- `migrations/0002_resilience.sql`: persistent login throttling, revocable sessions, backup inventory, R2 object metadata and idempotency storage.
+- `wrangler.toml.example`: D1/R2 binding template.
 
-## Required bindings and secrets
+## Required resources and configuration
 
-D1 binding: `DB`. R2 binding: `ASSETS` (reserved for the asset API work before frontend cutover).
+- D1 binding: `DB`; database must have **both** `schema.sql` and `migrations/0002_resilience.sql` applied before this Worker version can serve authenticated requests.
+- R2 binding: `ASSETS`; create the bucket and enable R2 in Cloudflare before image upload can be enabled.
+- Worker variable: `ASSET_PUBLIC_BASE_URL`; HTTPS base URL of the public R2 custom domain, ending with the bucket's public path. Never put account secrets here.
 
-Worker secrets:
+Worker secrets (never commit these or place them in browser JavaScript):
 - `ADMIN_EMAIL`
-- `ADMIN_PASSWORD_HASH`, format `pbkdf2-sha256$iterations$saltHex$derivedKeyHex` (minimum 100,000 PBKDF2-SHA-256 iterations, 16-byte salt, 32-byte derived key)
+- `ADMIN_PASSWORD_HASH`, format `pbkdf2-sha256$iterations$saltHex$derivedKeyHex` (100,000–1,000,000 iterations, 16-byte or larger salt, 32-byte derived key)
 - `SESSION_SECRET`, a long random secret
-- `ALLOWED_ORIGINS`, exact comma-separated origins, e.g. the HTTPS production origin and a separate staging origin. Do not use wildcard origins.
+- `ALLOWED_ORIGINS`, exact comma-separated origins only; no wildcard
 
-Do not reuse or expose the password currently stored in an existing Worker secret. Set a fresh admin password/hash as part of a reviewed staging setup. Generate the hash offline with a trusted local script/tool and store only the encoded hash as a Worker secret.
+Provision a fresh Admin identity. Do not reuse an old password or copy secrets from the existing Worker. Password hashes and session secrets must be generated locally and set as Worker secrets.
 
-## Staging endpoints currently implemented
+## Implemented API routes
 
 - `GET /api/health`
 - `GET /api/public/site-content`
@@ -31,20 +34,29 @@ Do not reuse or expose the password currently stored in an existing Worker secre
 - `PUT /api/admin/site-content`
 - `GET /api/admin/appointments`
 - `PATCH /api/admin/appointments/:uuid`
+- `DELETE /api/admin/appointments/:uuid`
+- `GET /api/admin/assets`
+- `POST /api/admin/assets` (multipart fields: `file`, `purpose`; purpose is gallery, hero or logo)
+- `DELETE /api/admin/assets/:objectKey`
 
-Every mutation requires an exact allowed Origin. Admin mutation routes require a signed HttpOnly Secure SameSite=Strict cookie. The login verifier accepts PBKDF2-SHA-256 password hashes. D1 audit records are required for admin content/status changes.
+## Security and availability notes
 
-## Known work before production cutover
+- Admin sessions are signed, stored by token hash in D1, expire after eight hours and can be revoked on logout.
+- Login throttling is persisted in D1 (per normalized identity and source IP); eight failed attempts in a rolling 15-minute window cause a temporary 429 response.
+- Mutations require an exact allowed Origin. Admin writes require a valid session and successful audit write.
+- The session cookie is HttpOnly, Secure and SameSite=None because the current GitHub Pages origin and a workers.dev API are cross-site. Some browsers block third-party cookies regardless of SameSite. A same-site API hostname/custom domain is the reliable production arrangement; do not assume cross-site cookie login works until verified on Android Chrome and desktop browsers.
+- Image uploads are limited to JPG/PNG/WebP and 8 MB; D1 stores metadata while R2 stores bytes. The public R2 base URL must be HTTPS.
+- D1/R2 quotas and provider outages remain possible. Keep independent off-provider backups and test restore; this architecture reduces provider coupling but cannot promise zero downtime.
+- The public static site must keep a last-known-good local cache/default rendering path and must not wait for the API to render its shell.
 
-1. Add a durable login rate limiter (for example a Durable Object or other server-side rate-limit store) and test it. Do not rely on per-isolate memory for security throttling.
-2. Implement R2 upload/list/delete endpoints and validate MIME type, file size, object key, and authorization.
-3. Add a data export/import script and checksums; reconcile appointments, content, gallery, logo, and any offer data.
-4. Review all current admin UI operations against API routes; adapt the frontend only after staging E2E tests.
-5. Verify CORS/CSRF, unauthenticated reads/writes, invalid login, session expiry/logout, backups, quota failures, and mobile/desktop.
-6. Add a documented restore process and alerting for quota/resource errors.
+## Cutover gate — not yet satisfied
 
-## Current account provisioning status (2026-10-10)
+1. Confirm the exact live UI data contract and replace every Supabase call in the website, booking page and Admin.
+2. Build the provider-neutral browser API adapter and new Admin auth adapter; verify all existing controls still work.
+3. Export/reconcile existing public content and image references only if needed; user has asked for a new Admin account and no old Supabase records migration. Do not delete the Supabase project.
+4. Apply D1 schema + migration to the new D1 database; provision R2, secrets and an API origin.
+5. Test login, logout, session expiry/revocation, throttling, save/read-back, booking, appointment update/delete, image upload/delete, backups and restore.
+6. Test Android and desktop, API outage fallback, and quota/error behavior.
+7. Only after the user explicitly authorizes it: deploy and cut over. Keep rollback instructions and the old Supabase project intact.
 
-The connected Cloudflare identity can read the account and list Workers. A D1 list request succeeded, but the attempt to create a D1 database returned an authentication error. Creating a separate staging Worker returned a resource-access error, and the R2 API reports R2 must first be enabled in the Dashboard. These are permissions/provisioning blockers; no D1 database, R2 bucket, or new Worker was created by those attempts.
-
-The existing Worker `the-ark-admin-auth` was left untouched. Do not change the public frontend or disable Supabase until provisioning works, the current Supabase data and assets are exported, imported, and reconciled, and staging tests pass.
+No live deployment or Cloudflare resource mutation is authorized by this README.
