@@ -306,9 +306,11 @@ export default {
     if (path === '/api/admin/login' && method === 'POST') {
       if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
       try {
-        if (!env.ADMIN_EMAIL || !env.ADMIN_PASSWORD_HASH || !env.SESSION_SECRET) {
+        if (!env.ADMIN_EMAIL || !env.SESSION_SECRET) {
           return withCors(request, env, json({ ok: false, error: 'Admin login is not configured.', requestId }, 503));
         }
+        const adminCredential = await env.DB.prepare('SELECT password_hash FROM admin_credentials WHERE email = ?').bind(String(env.ADMIN_EMAIL).toLowerCase()).first();
+        if (!adminCredential?.password_hash) return withCors(request, env, json({ ok: false, error: 'Admin credentials are not provisioned.', requestId }, 503));
         const body = await readJson(request, 10_000);
         const email = String(body.email || '').trim().toLowerCase();
         const password = String(body.password || '');
@@ -317,7 +319,7 @@ export default {
         }
         const valid = !!email && email.length <= 254 && !!password && password.length <= 1024 &&
           equalConstantTime(email, String(env.ADMIN_EMAIL).toLowerCase()) &&
-          await verifyPassword(password, env.ADMIN_PASSWORD_HASH);
+          await verifyPassword(password, adminCredential.password_hash);
         await recordLoginAttempt(env, request, email, valid);
         if (!valid) {
           return withCors(request, env, json({ ok: false, error: 'Invalid admin ID or password.', requestId }, 401));
