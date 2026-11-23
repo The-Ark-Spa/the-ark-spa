@@ -1,5 +1,5 @@
 -- Resilience and security tables for the independent Ark backend.
--- Apply after backend/schema.sql to the existing D1 database.
+-- Apply after 0001_initial_schema.sql.
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS admin_login_attempts (
