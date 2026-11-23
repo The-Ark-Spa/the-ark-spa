@@ -16,7 +16,7 @@ Worker configuration: `ADMIN_EMAIL=admin@thearkspa.com`, `ALLOWED_ORIGINS=https:
 
 Worker secret (never commit): `SESSION_SECRET`.
 
-The Admin password hash is stored in the private D1 `admin_credentials` table using PBKDF2-SHA-256. It is not stored in GitHub or a public Worker variable.
+The Admin password hash is created by the one-time `/api/admin/bootstrap` endpoint and stored in the private D1 `admin_credentials` table using PBKDF2-SHA-256. The endpoint requires the `ADMIN_SETUP_CODE` Worker secret and permanently closes after the first Admin account is created. A setup form is staged at `admin-setup.worker.html`.
 
 ## Images
 
@@ -31,6 +31,7 @@ A small JSON snapshot (site content and appointments) is stored in D1 with SHA-2
 - `GET /api/health`
 - `GET /api/public/site-content`
 - `POST /api/appointments`
+- `POST /api/admin/bootstrap` (one time only)
 - `POST /api/admin/login`
 - `GET /api/admin/session`
 - `POST /api/admin/logout`
