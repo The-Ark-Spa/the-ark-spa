@@ -281,7 +281,7 @@
   const gate=document.getElementById('adminAuthGate');
   const dashboard=document.getElementById('dashboard');
   let authorized=false;
-  const goHome=()=>{window.location.replace('index.html')};
+  const goHome=()=>{window.location.replace('index.worker.html')};
   const boot=async()=>{
     try{
       if(!window.adminAuth)throw new Error('Admin authentication module is unavailable.');
@@ -309,7 +309,7 @@
   }
 })();
 </script><div class="admin-top">
-  <a class="brand" href="index.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a>
+  <a class="brand" href="index.worker.html"><img id="adminLogo" class="brand-logo" src="assets/ark-logo-reference.png" alt="The Ark Spa & Salon"><span><b>THE ARK</b><small>ADMIN CENTER</small></span></a>
   <button class="btn logout" id="logoutBtn" type="button">Logout</button>
 </div>
 <div class="admin-nav" role="tablist" aria-label="Admin navigation">
@@ -688,7 +688,7 @@ function resetAdminView(){document.querySelectorAll('.admin-section-card.open').
     if(dashboard)dashboard.style.visibility='visible';
   }catch(error){
     console.error('Admin dashboard initialization failed:',error);
-    window.location.replace('index.html');
+    window.location.replace('index.worker.html');
   }
 })();
 
