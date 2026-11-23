@@ -10,13 +10,13 @@ Last checked: 2026-11-23 (Asia/Kolkata)
 - R2 bindings and dependencies have been removed from Worker source and configuration.
 - Worker `the-ark-spa-api` deployed successfully with D1 binding, Admin email and exact GitHub Pages origin.
 - Worker session secret has been provisioned as a Cloudflare secret.
-- Admin login reads a salted PBKDF2 password hash from private D1, not from GitHub or a public Worker variable.
+- One-time bootstrap endpoint and setup page `admin-setup.worker.html` are deployed/staged; it hashes the chosen password using PBKDF2-SHA-256 and stores it in private D1. Bootstrap closes after first account creation.
 - Staged public/Admin pages and API adapters remain separate from original live pages.
 
 ## Remaining before live cutover
 
-- Provision the Admin password hash in D1. This requires the site owner to choose/set the password through a secure bootstrap flow; no default or guessed password is being installed.
-- Verify Worker health and actual browser API requests, then test login/logout/session expiry/rate limiting, content edits, appointments, image upload/read/delete and backup export/read-back.
+- Add the one-time `ADMIN_SETUP_CODE` value as a Worker secret in Cloudflare. Then open the staged setup page, enter that code, and choose a password of at least 14 characters.
+- Verify Worker health and actual browser API requests, then test login/logout/session expiry/throttling, content edits, appointments, image upload/read/delete and backup export/read-back.
 - Test Android Chrome and desktop, including static-site fallback on API outage.
 - Only after all tests pass, promote staged HTML to live filenames. Keep original Supabase project and original HTML files for rollback.
 
@@ -25,4 +25,4 @@ Last checked: 2026-11-23 (Asia/Kolkata)
 - Public image uploads are limited to 1 MB each to fit D1 row-size constraints.
 - D1 quotas and provider outages remain possible; download periodic backups and keep an independent copy.
 - No R2 subscription, bucket, GitHub write token or paid storage service is required.
-- Worker deployment is complete, but Admin credential provisioning, end-to-end acceptance and live website cutover are not complete.
+- Worker deployment is complete; Admin password initialization, end-to-end acceptance and live website cutover are not complete.
