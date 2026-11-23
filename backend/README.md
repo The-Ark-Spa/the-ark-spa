@@ -12,7 +12,8 @@ This is the independent backend being built to replace the Supabase dependency. 
 ## Required resources and configuration
 
 - D1 binding: `DB`; database must have **both** `schema.sql` and `migrations/0002_resilience.sql` applied before this Worker version can serve authenticated requests.
-- R2 binding: `ASSETS`; create the bucket and enable R2 in Cloudflare before image upload can be enabled.
+- R2 binding: `ASSETS`; create the public image bucket and enable R2 before image upload can be enabled.
+- R2 binding: `BACKUPS`; create a **separate private bucket** for customer/appointment backups. Never expose this bucket through a public domain.
 - Worker variable: `ASSET_PUBLIC_BASE_URL`; HTTPS base URL of the public R2 custom domain, ending with the bucket's public path. Never put account secrets here.
 
 Worker secrets (never commit these or place them in browser JavaScript):
@@ -38,6 +39,8 @@ Provision a fresh Admin identity. Do not reuse an old password or copy secrets f
 - `GET /api/admin/assets`
 - `POST /api/admin/assets` (multipart fields: `file`, `purpose`; purpose is gallery, hero or logo)
 - `DELETE /api/admin/assets/:objectKey`
+- `GET /api/admin/backups`
+- `POST /api/admin/backups` (creates, stores and checksum-verifies a private backup; returns a downloadable JSON snapshot)
 
 ## Security and availability notes
 
@@ -52,11 +55,12 @@ Provision a fresh Admin identity. Do not reuse an old password or copy secrets f
 ## Cutover gate — not yet satisfied
 
 1. Confirm the exact live UI data contract and replace every Supabase call in the website, booking page and Admin.
-2. Build the provider-neutral browser API adapter and new Admin auth adapter; verify all existing controls still work.
-3. Export/reconcile existing public content and image references only if needed; user has asked for a new Admin account and no old Supabase records migration. Do not delete the Supabase project.
-4. Apply D1 schema + migration to the new D1 database; provision R2, secrets and an API origin.
-5. Test login, logout, session expiry/revocation, throttling, save/read-back, booking, appointment update/delete, image upload/delete, backups and restore.
-6. Test Android and desktop, API outage fallback, and quota/error behavior.
-7. Only after the user explicitly authorizes it: deploy and cut over. Keep rollback instructions and the old Supabase project intact.
+2. Implement and test approved-state restore and per-section reset operations against the existing Recovery UI.
+3. Build the provider-neutral browser API adapter and new Admin auth adapter; verify all existing controls still work.
+4. Export/reconcile approved public content and image references only if needed; user has asked for a new Admin account and no old Supabase records migration. Do not delete the Supabase project.
+5. Apply D1 schema + migration to the new D1 database; provision R2, secrets and an API origin.
+6. Test login, logout, session expiry/revocation, throttling, save/read-back, booking, appointment update/delete, image upload/delete, backups and restore.
+7. Test Android and desktop, API outage fallback, and quota/error behavior.
+8. Only after the user explicitly authorizes it: deploy and cut over. Keep rollback instructions and the old Supabase project intact.
 
 No live deployment or Cloudflare resource mutation is authorized by this README.
