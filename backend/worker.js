@@ -353,7 +353,7 @@ export default {
           const bytes = await file.arrayBuffer();
           const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
           await env.ASSETS.put(objectKey, bytes, { httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' }, customMetadata: { purpose, originalName: String(file.name || '').slice(0, 120), sha256: checksum } });
-          const base = String(env.ASSET_PUBLIC_BASE_URL).replace(/\\/+$/, '') + '/';
+          const base = String(env.ASSET_PUBLIC_BASE_URL).replace(/\/+$/, '') + '/';
           const publicUrl = new URL(objectKey.split('/').map(encodeURIComponent).join('/'), base).toString();
           await env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by) VALUES (?, ?, ?, ?, ?, ?)')
             .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e).run();
