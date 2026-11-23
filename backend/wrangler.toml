@@ -11,13 +11,3 @@ binding = "DB"
 database_name = "thearkspadata"
 database_id = "4078fc56-d0c4-4748-b5d7-a8c4dcfd3d85"
 migrations_dir = "migrations"
-
-[vars]
-GITHUB_OWNER = "The-Ark-Spa"
-GITHUB_REPO = "the-ark-spa"
-GITHUB_BRANCH = "main"
-
-# Set GITHUB_TOKEN as a Worker secret (never commit it).
-# Token needs Contents: Read and write on this repository only.
-# npx wrangler secret put GITHUB_TOKEN
-# Also set ADMIN_EMAIL, ADMIN_PASSWORD_HASH, SESSION_SECRET, ALLOWED_ORIGINS.
