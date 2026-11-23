@@ -5,7 +5,7 @@ Last checked: 2026-11-23 (Asia/Kolkata)
 ## Completed
 
 - The existing D1 database `thearkspadata` was inspected and confirmed to contain no application tables before setup.
-- Applied `backend/schema.sql` followed by `backend/migrations/0002_resilience.sql` to that D1 database.
+- Applied `backend/schema.sql` followed by migrations `0002_resilience.sql` and `0003_appointment_details.sql` to that D1 database.
 - Read-only verification confirmed these application tables exist:
   - `site_content`
   - `appointments`
@@ -16,10 +16,11 @@ Last checked: 2026-11-23 (Asia/Kolkata)
   - `idempotency_keys`
   - `site_content_revisions`
   - `storage_objects`
+- Added D1 fields for per-person booking details (`guest_count`, `people`, `selected_duration`, `regular_rate`) so the existing multi-guest Admin appointment view/export retains its data.
 - Backend source is on GitHub `main`; Worker JavaScript syntax was checked after the current changes.
 - Added provider-neutral browser API client, Worker-backed Admin auth adapter, and a public app adapter with last-known-good local cache.
 - Staged alternate `.worker.html` pages for the public pages, booking, login and Admin, plus staged login/navigation helpers. Inline scripts were syntax-checked. The original live HTML files remain unchanged.
-- The staged Admin now calls the API for content saves, appointment list/status/delete, gallery/hero/logo uploads, gallery asset deletion and private backup export.
+- The staged Admin now calls the API for content saves, appointment list/status/delete, gallery/hero/logo uploads, gallery asset deletion and private backup export. Multi-person booking details are preserved in the new appointment columns.
 
 ## Still blocked / not provisioned
 
