@@ -236,13 +236,29 @@ export default {
           if (prior) return withCors(request, env, json(JSON.parse(prior.response_json), 200));
         }
         const id = crypto.randomUUID();
+        const guestCount = Math.min(4, Math.max(1, Number.parseInt(body.guestCount || body.guests || 1, 10) || 1));
+        const people = Array.isArray(body.people) ? body.people.slice(0, 4).map((person, index) => ({
+          person: Math.min(4, Math.max(1, Number.parseInt(person?.person || index + 1, 10) || index + 1)),
+          service: String(person?.service || '').slice(0, 200),
+          offer: String(person?.offer || '').slice(0, 200),
+          duration: String(person?.duration || '').slice(0, 80),
+          regularRate: String(person?.regularRate || '').slice(0, 80),
+          finalPrice: String(person?.finalPrice || '').slice(0, 80),
+          offerType: String(person?.offerType || '').slice(0, 40),
+          offerRate: String(person?.offerRate || '').slice(0, 80),
+          offerPercent: Number.isFinite(Number(person?.offerPercent)) ? Number(person.offerPercent) : null
+        })) : [];
+        if (people.length && people.length !== guestCount) {
+          return withCors(request, env, json({ ok: false, error: 'Guest details do not match the selected guest count.', requestId }, 400));
+        }
         const payload = { ok: true, id, status: 'Pending', requestId };
         const appointmentInsert = env.DB.prepare(`INSERT INTO appointments
-          (id,name,phone,email,service,offer,guests,date,time,final_price,total_amount,status,created_at,updated_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
+          (id,name,phone,email,service,offer,guests,guest_count,people,selected_duration,regular_rate,date,time,final_price,total_amount,status,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
           .bind(id, String(body.name || '').slice(0, 200), phone, String(body.email || '').slice(0, 254),
             String(body.service || '').slice(0, 500), String(body.offer || '').slice(0, 500),
-            Math.min(20, Math.max(1, Number.parseInt(body.guests || 1, 10) || 1)), date, time,
+            guestCount, guestCount, JSON.stringify(people), String(body.selectedDuration || '').slice(0, 500),
+            String(body.regularRate || '').slice(0, 500), date, time,
             String(body.finalPrice || '').slice(0, 100), Number.isFinite(Number(body.totalAmount)) ? Number(body.totalAmount) : null,
             'Pending');
         if (idemKey) {
