@@ -12,11 +12,11 @@ This backend uses Cloudflare Worker + the existing D1 database only. It does not
 
 D1 binding: `DB`, database `thearkspadata`.
 
-Worker secrets (never commit these):
-- `ADMIN_EMAIL`
-- `ADMIN_PASSWORD_HASH`: `pbkdf2-sha256$iterations$saltHex$derivedKeyHex`.
-- `SESSION_SECRET`: long random secret.
-- `ALLOWED_ORIGINS`: exact origin `https://the-ark-spa.github.io`.
+Worker configuration: `ADMIN_EMAIL=admin@thearkspa.com`, `ALLOWED_ORIGINS=https://the-ark-spa.github.io`.
+
+Worker secret (never commit): `SESSION_SECRET`.
+
+The Admin password hash is stored in the private D1 `admin_credentials` table using PBKDF2-SHA-256. It is not stored in GitHub or a public Worker variable.
 
 ## Images
 
