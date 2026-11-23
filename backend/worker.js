@@ -186,7 +186,7 @@ export default {
       if (!origin || !allowedOrigins(env).includes(origin)) return json({ ok: false, error: 'Origin not allowed.' }, 403);
       return new Response(null, { status: 204, headers: responseHeaders(request, env, {
         'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Request-ID, Idempotency-Key',
         'Access-Control-Max-Age': '600'
       }) });
     }
@@ -214,19 +214,49 @@ export default {
         const phone = String(body.phone || '').trim();
         const date = String(body.date || '').trim();
         const time = String(body.time || '').trim();
-        if (!phone || phone.length > 30 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
+        if (!phone || phone.length > 30 || !/^\\d{4}-\\d{2}-\\d{2}$/.test(date) || !/^\\d{2}:\\d{2}$/.test(time)) {
           return withCors(request, env, json({ ok: false, error: 'Please provide a valid phone number, date and time.', requestId }, 400));
         }
+        const rawIdempotencyKey = request.headers.get('Idempotency-Key') || '';
+        if (rawIdempotencyKey && !/^[A-Za-z0-9_-]{16,128}$/.test(rawIdempotencyKey)) {
+          return withCors(request, env, json({ ok: false, error: 'Invalid request idempotency key.', requestId }, 400));
+        }
+        const now = Math.floor(Date.now() / 1000);
+        const idemKey = rawIdempotencyKey ? await digestHex(rawIdempotencyKey) : '';
+        if (idemKey) {
+          const prior = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+            .bind(idemKey, 'appointment.create', now).first();
+          if (prior) return withCors(request, env, json(JSON.parse(prior.response_json), 200));
+        }
         const id = crypto.randomUUID();
-        await env.DB.prepare(`INSERT INTO appointments
+        const payload = { ok: true, id, status: 'Pending', requestId };
+        const appointmentInsert = env.DB.prepare(`INSERT INTO appointments
           (id,name,phone,email,service,offer,guests,date,time,final_price,total_amount,status,created_at,updated_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),strftime('%Y-%m-%dT%H:%M:%fZ','now'))`)
           .bind(id, String(body.name || '').slice(0, 200), phone, String(body.email || '').slice(0, 254),
             String(body.service || '').slice(0, 500), String(body.offer || '').slice(0, 500),
             Math.min(20, Math.max(1, Number.parseInt(body.guests || 1, 10) || 1)), date, time,
             String(body.finalPrice || '').slice(0, 100), Number.isFinite(Number(body.totalAmount)) ? Number(body.totalAmount) : null,
-            'Pending').run();
-        return withCors(request, env, json({ ok: true, id, status: 'Pending', requestId }, 201));
+            'Pending');
+        if (idemKey) {
+          try {
+            await env.DB.batch([
+              appointmentInsert,
+              env.DB.prepare('INSERT INTO idempotency_keys (key,operation,response_json,created_at,expires_at) VALUES (?,?,?,?,?)')
+                .bind(idemKey, 'appointment.create', JSON.stringify(payload), now, now + 7 * 86400)
+            ]);
+          } catch (error) {
+            const raced = await env.DB.prepare('SELECT response_json FROM idempotency_keys WHERE key = ? AND operation = ? AND expires_at > ?')
+              .bind(idemKey, 'appointment.create', now).first();
+            if (raced) return withCors(request, env, json(JSON.parse(raced.response_json), 200));
+            throw error;
+          }
+        } else {
+          await appointmentInsert.run();
+        }
+        const saved = await env.DB.prepare('SELECT id,status FROM appointments WHERE id = ?').bind(id).first();
+        if (!saved || saved.status !== 'Pending') throw new Error('Appointment read-back verification failed.');
+        return withCors(request, env, json(payload, 201));
       } catch (error) {
         console.error('appointment_create_failed', requestId, String(error));
         return withCors(request, env, json({ ok: false, error: 'Appointment could not be saved. Please try again.', requestId }, 503));
