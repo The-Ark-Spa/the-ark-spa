@@ -366,12 +366,14 @@ export default {
         }
       }
 
-      const assetMatch = path.match(/^\\/api\\/admin\\/assets\\/(.+)$/);
-      if (assetMatch && method === 'DELETE') {
+      const assetPrefix = '/api/admin/assets/';
+      const assetKeyPath = path.startsWith(assetPrefix) ? path.slice(assetPrefix.length) : '';
+      if (assetKeyPath && method === 'DELETE') {
         try {
           if (!env.ASSETS) return withCors(request, env, json({ ok: false, error: 'Image storage is not configured.', requestId }, 503));
-          const objectKey = decodeURIComponent(assetMatch[1]);
-          if (!/^ark\\/(gallery|hero|logo)\\/[A-Za-z0-9._/-]+$/.test(objectKey) || objectKey.includes('..')) return withCors(request, env, json({ ok: false, error: 'Invalid asset key.', requestId }, 400));
+          const objectKey = decodeURIComponent(assetKeyPath);
+          const keyParts = objectKey.split('/');
+          if (keyParts.length !== 4 || keyParts[0] !== 'ark' || !['gallery','hero','logo'].includes(keyParts[1]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[2]) || !/^[A-Za-z0-9._-]+$/.test(keyParts[3]) || objectKey.includes('..')) return withCors(request, env, json({ ok: false, error: 'Invalid asset key.', requestId }, 400));
           const existing = await env.DB.prepare('SELECT object_key FROM storage_objects WHERE object_key = ?').bind(objectKey).first();
           if (!existing) return withCors(request, env, json({ ok: false, error: 'Asset not found.', requestId }, 404));
           await env.ASSETS.delete(objectKey);
