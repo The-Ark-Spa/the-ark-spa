@@ -9,14 +9,14 @@ This is the independent backend being built to replace the Supabase dependency. 
 - `migrations/0001_initial_schema.sql`: tracked initial D1 schema applied by Wrangler.
 - `migrations/0002_resilience.sql`: persistent login throttling, revocable sessions, backup inventory, R2 object metadata, idempotency storage and content revisions.
 - `migrations/0003_appointment_details.sql`: per-person therapy, offer, duration and rate fields required by the existing multi-guest booking UI.
-- `wrangler.toml.example`: D1/R2 binding template.
+- `wrangler.toml.example` and `wrangler.toml`: D1/R2 binding configuration; the deployment config is ready but bindings cannot be activated until R2 is enabled and both buckets exist.
 
 ## Required resources and configuration
 
 - D1 binding: `DB`; database must have `schema.sql` and all migrations through `0003_appointment_details.sql` applied before this Worker version can serve authenticated requests.
-- R2 binding: `ASSETS`; create the public image bucket and enable R2 before image upload can be enabled.
+- R2 binding: `ASSETS`; create the private image bucket. Public images are served through the Worker `/assets/*` route; do not expose the bucket itself.
 - R2 binding: `BACKUPS`; create a **separate private bucket** for customer/appointment backups. Never expose this bucket through a public domain.
-- Worker variable: `ASSET_PUBLIC_BASE_URL`; HTTPS base URL of the public R2 custom domain, ending with the bucket's public path. Never put account secrets here.
+- Worker variable: `ASSET_PUBLIC_BASE_URL`; set to `https://the-ark-spa-api.bundela-ar143.workers.dev/assets/` for the current Worker origin. Never put account secrets here.
 
 Worker secrets (never commit these or place them in browser JavaScript):
 - `ADMIN_EMAIL`
@@ -49,23 +49,22 @@ Provision a fresh Admin identity. Do not reuse an old password or copy secrets f
 - Admin sessions are signed, stored by token hash in D1, expire after eight hours and can be revoked on logout.
 - Login throttling is persisted in D1 (per normalized identity and source IP); eight failed attempts in a rolling 15-minute window cause a temporary 429 response.
 - Mutations require an exact allowed Origin. Admin writes require a valid session and successful audit write.
-- The session cookie is HttpOnly, Secure and SameSite=None because the current GitHub Pages origin and a workers.dev API are cross-site. Some browsers block third-party cookies regardless of SameSite. A same-site API hostname/custom domain is the reliable production arrangement; do not assume cross-site cookie login works until verified on Android Chrome and desktop browsers.
+- Login returns a signed, revocable bearer token held only in tab-scoped `sessionStorage`; API requests send it in the Authorization header. This avoids relying on third-party cookies between GitHub Pages and workers.dev. The server also sets an HttpOnly cookie as a fallback. Origin allowlisting and server-side session revocation remain enforced. XSS prevention remains important because the browser must hold the bearer token.
 - Image uploads are limited to JPG/PNG/WebP and 8 MB; D1 stores metadata while R2 stores bytes. The public R2 base URL must be HTTPS.
 - D1/R2 quotas and provider outages remain possible. Keep independent off-provider backups and test restore; this architecture reduces provider coupling but cannot promise zero downtime.
 - The public static site must keep a last-known-good local cache/default rendering path and must not wait for the API to render its shell.
 
 ## Cutover gate — not yet satisfied
 
-1. Confirm the exact live UI data contract and replace every Supabase call in the website, booking page and Admin.
-2. Implement and test approved-state restore and per-section reset operations against the existing Recovery UI.
-3. Build the provider-neutral browser API adapter and new Admin auth adapter; verify all existing controls still work.
-4. Export/reconcile approved public content and image references only if needed; user has asked for a new Admin account and no old Supabase records migration. Do not delete the Supabase project.
-5. Apply D1 schema + migration to the new D1 database; provision R2, secrets and an API origin.
-6. Test login, logout, session expiry/revocation, throttling, save/read-back, booking, appointment update/delete, image upload/delete, backups and restore.
-7. Test Android and desktop, API outage fallback, and quota/error behavior.
-8. Only after the user explicitly authorizes it: deploy and cut over. Keep rollback instructions and the old Supabase project intact.
+1. The staged frontend pages and adapters are built; their inline JavaScript syntax checks pass and staged pages contain no Supabase references. Original live pages remain untouched.
+2. Existing Recovery actions (approved rates/offers/gallery resets and approved-state restore) save through the new API adapter; private server backup creation and checksum verification are implemented. Importing arbitrary backup files is not part of the current Recovery UI.
+3. D1 schema and migrations are applied; approved default content is seeded and verified. No legacy Supabase records are migrated, as requested.
+4. Enable R2 and create the two configured private buckets, then set Worker secrets for the fresh Admin identity.
+5. Deploy the Worker and test login, logout, session expiry/revocation, throttling, save/read-back, booking, appointment update/delete, image upload/delete, backups and Recovery actions.
+6. Test Android and desktop, API outage fallback, and quota/error behavior.
+7. Promote the staged HTML pages to the live filenames only after those tests pass; keep the old Supabase project and original HTML files available for rollback.
 
-The D1 schema setup is a staging-resource change and is complete. No Worker deployment, DNS change, or public website cutover has been made.
+The D1 schema setup and default content seed are complete. No Worker deployment, DNS change, or public website cutover has been made.
 
 ## Current provisioning
 
