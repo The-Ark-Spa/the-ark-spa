@@ -357,6 +357,59 @@ export default {
       }
 
 
+
+      if (path === '/api/admin/backups' && method === 'GET') {
+        try {
+          const result = await env.DB.prepare('SELECT id,status,byte_length,created_at,verified_at,notes FROM backup_runs ORDER BY created_at DESC LIMIT 50').all();
+          return withCors(request, env, json({ ok: true, backups: result.results || [], requestId }));
+        } catch (error) {
+          console.error('backup_list_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup history could not be loaded.', requestId }, 503));
+        }
+      }
+
+      if (path === '/api/admin/backups' && method === 'POST') {
+        if (!env.BACKUPS) return withCors(request, env, json({ ok: false, error: 'Private backup storage is not configured.', requestId }, 503));
+        const backupId = crypto.randomUUID();
+        const objectKey = 'ark-backups/' + new Date().toISOString().slice(0, 10) + '/' + backupId + '.json';
+        try {
+          const [content, appointments, assets] = await Promise.all([
+            env.DB.prepare('SELECT data,updated_at FROM site_content WHERE id = 1').first(),
+            env.DB.prepare('SELECT * FROM appointments ORDER BY created_at ASC').all(),
+            env.DB.prepare('SELECT object_key,public_url,content_type,byte_length,purpose,created_at FROM storage_objects ORDER BY created_at ASC').all()
+          ]);
+          if (!content) return withCors(request, env, json({ ok: false, error: 'There is no saved site content to back up yet.', requestId }, 409));
+          const snapshot = {
+            format: 'the-ark-spa-backup',
+            version: 1,
+            backupId,
+            createdAt: new Date().toISOString(),
+            siteContent: { data: JSON.parse(content.data), updatedAt: content.updated_at },
+            appointments: appointments.results || [],
+            assets: assets.results || []
+          };
+          const encoded = JSON.stringify(snapshot);
+          const bytes = new TextEncoder().encode(encoded);
+          const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', bytes));
+          await env.DB.prepare("INSERT INTO backup_runs (id,status,object_key,content_sha256,byte_length,notes) VALUES (?,'started',?,?,?,'')").bind(backupId, objectKey, checksum, bytes.byteLength).run();
+          await env.BACKUPS.put(objectKey, bytes, { httpMetadata: { contentType: 'application/json', cacheControl: 'private, no-store' }, customMetadata: { backupId, sha256: checksum } });
+          const stored = await env.BACKUPS.get(objectKey);
+          if (!stored) throw new Error('Backup object read-back failed.');
+          const storedBytes = await stored.arrayBuffer();
+          const storedChecksum = bytesToHex(await crypto.subtle.digest('SHA-256', storedBytes));
+          if (storedChecksum !== checksum || storedBytes.byteLength !== bytes.byteLength) throw new Error('Backup checksum verification failed.');
+          await env.DB.batch([
+            env.DB.prepare("UPDATE backup_runs SET status='verified',verified_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?").bind(backupId),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'backup.create', backupId)
+          ]);
+          return withCors(request, env, json({ ok: true, backup: { id: backupId, status: 'verified', byteLength: bytes.byteLength, sha256: checksum, createdAt: snapshot.createdAt }, download: snapshot, requestId }, 201));
+        } catch (error) {
+          try { await env.DB.prepare("UPDATE backup_runs SET status='failed',notes=? WHERE id=?").bind(String(error).slice(0, 500), backupId).run(); } catch (recordError) { console.error('backup_failure_record_failed', requestId, String(recordError)); }
+          console.error('backup_create_failed', requestId, String(error));
+          return withCors(request, env, json({ ok: false, error: 'Backup could not be completed and verified.', requestId }, 503));
+        }
+      }
+
       if (path === '/api/admin/assets' && method === 'GET') {
         try {
           const result = await env.DB.prepare('SELECT object_key, public_url, content_type, byte_length, purpose, created_at FROM storage_objects ORDER BY created_at DESC LIMIT 500').all();
