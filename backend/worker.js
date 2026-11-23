@@ -193,6 +193,28 @@ export default {
       }) });
     }
 
+    if (path.startsWith('/assets/') && method === 'GET') {
+      if (!env.ASSETS) return new Response('Asset storage unavailable.', { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      try {
+        const objectKey = decodeURIComponent(path.slice('/assets/'.length));
+        const parts = objectKey.split('/');
+        if (parts.length !== 4 || parts[0] !== 'ark' || !['gallery','hero','logo'].includes(parts[1]) || !/^[0-9]{4}$/.test(parts[2]) || !/^[A-Za-z0-9._-]+$/.test(parts[3]) || objectKey.includes('..')) {
+          return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        }
+        const object = await env.ASSETS.get(objectKey);
+        if (!object) return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
+        const headers = new Headers();
+        object.writeHttpMetadata(headers);
+        headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        if (object.httpEtag) headers.set('ETag', object.httpEtag);
+        return new Response(object.body, { headers });
+      } catch (error) {
+        console.error('public_asset_read_failed', requestId, String(error));
+        return new Response('Asset unavailable.', { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      }
+    }
+
     if (path === '/api/health' && method === 'GET') {
       let d1 = false;
       try { if (env.DB) { await env.DB.prepare('SELECT 1 AS ready').first(); d1 = true; } } catch (error) {
