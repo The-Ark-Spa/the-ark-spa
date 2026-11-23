@@ -438,12 +438,18 @@ export default {
           await env.ASSETS.put(objectKey, bytes, { httpMetadata: { contentType: file.type, cacheControl: 'public, max-age=31536000, immutable' }, customMetadata: { purpose, originalName: String(file.name || '').slice(0, 120), sha256: checksum } });
           const base = String(env.ASSET_PUBLIC_BASE_URL).replace(/\/+$/, '') + '/';
           const publicUrl = new URL(objectKey.split('/').map(encodeURIComponent).join('/'), base).toString();
-          await env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by) VALUES (?, ?, ?, ?, ?, ?)')
-            .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e).run();
-          await audit(env, session.e, 'asset.upload', objectKey, requestId);
+          await env.DB.batch([
+            env.DB.prepare('INSERT INTO storage_objects (object_key, public_url, content_type, byte_length, purpose, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+              .bind(objectKey, publicUrl, file.type, file.size, purpose, session.e),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)')
+              .bind(requestId, session.e, 'asset.upload', objectKey)
+          ]);
           return withCors(request, env, json({ ok: true, asset: { object_key: objectKey, public_url: publicUrl, content_type: file.type, byte_length: file.size, purpose }, requestId }, 201));
         } catch (error) {
-          if (objectKey) { try { await env.ASSETS.delete(objectKey); } catch (cleanupError) { console.error('asset_orphan_cleanup_failed', requestId, String(cleanupError)); } }
+          if (objectKey) {
+            try { await env.ASSETS.delete(objectKey); } catch (cleanupError) { console.error('asset_orphan_cleanup_failed', requestId, String(cleanupError)); }
+            try { await env.DB.prepare('DELETE FROM storage_objects WHERE object_key = ?').bind(objectKey).run(); } catch (metadataCleanupError) { console.error('asset_metadata_cleanup_failed', requestId, String(metadataCleanupError)); }
+          }
           console.error('asset_upload_failed', requestId, String(error));
           return withCors(request, env, json({ ok: false, error: 'Image upload could not be verified.', requestId }, 503));
         }
@@ -473,9 +479,11 @@ export default {
 
       if (appointmentMatch && method === 'DELETE') {
         try {
-          const result = await env.DB.prepare('DELETE FROM appointments WHERE id = ?').bind(appointmentMatch[1]).run();
-          if (!result.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
-          await audit(env, session.e, 'appointment.delete', appointmentMatch[1], requestId);
+          const results = await env.DB.batch([
+            env.DB.prepare('DELETE FROM appointments WHERE id = ?').bind(appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.delete', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
           return withCors(request, env, json({ ok: true, requestId }));
         } catch (error) {
           console.error('appointment_delete_failed', requestId, String(error));
@@ -488,9 +496,11 @@ export default {
           const body = await readJson(request, 10_000);
           const status = String(body.status || '');
           if (!['Pending','Confirmed','Completed','Cancelled','No-show'].includes(status)) return withCors(request, env, json({ ok: false, error: 'Invalid appointment status.', requestId }, 400));
-          const result = await env.DB.prepare(`UPDATE appointments SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).bind(status, appointmentMatch[1]).run();
-          if (!result.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
-          await audit(env, session.e, 'appointment.status', appointmentMatch[1], requestId);
+          const results = await env.DB.batch([
+            env.DB.prepare(`UPDATE appointments SET status=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`).bind(status, appointmentMatch[1]),
+            env.DB.prepare('INSERT INTO audit_events (request_id,actor,action,resource) VALUES (?,?,?,?)').bind(requestId, session.e, 'appointment.status', appointmentMatch[1])
+          ]);
+          if (!results[0]?.meta?.changes) return withCors(request, env, json({ ok: false, error: 'Appointment not found.', requestId }, 404));
           return withCors(request, env, json({ ok: true, requestId }));
         } catch (error) {
           console.error('appointment_update_failed', requestId, String(error));
