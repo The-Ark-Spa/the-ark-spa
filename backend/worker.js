@@ -42,7 +42,9 @@ function withCors(request, env, response) {
 }
 
 function cookie(value, maxAge) {
-  return `${SESSION_COOKIE}=${value}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=Strict`;
+  // GitHub Pages and workers.dev are cross-site; SameSite=None is required for credentialed API requests.
+  // Origin allowlisting remains mandatory for every state-changing request.
+  return `${SESSION_COOKIE}=${value}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=None`;
 }
 
 function bytesToHex(bytes) {
@@ -73,6 +75,40 @@ async function hmac(secret, value) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value)));
 }
+
+async function digestHex(value) {
+  return bytesToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
+}
+async function recordLoginAttempt(env, request, email, succeeded) {
+  const now = Math.floor(Date.now() / 1000);
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const identities = await Promise.all([
+    digestHex('email:' + String(email || '').toLowerCase()),
+    digestHex('ip:' + ip)
+  ]);
+  const statements = identities.map(identity => env.DB.prepare(
+    'INSERT INTO admin_login_attempts (identity_hash, attempted_at, succeeded) VALUES (?, ?, ?)'
+  ).bind(identity, now, succeeded ? 1 : 0));
+  await env.DB.batch(statements);
+  // Keep the throttle table bounded without making cleanup part of the auth decision.
+  await env.DB.prepare('DELETE FROM admin_login_attempts WHERE attempted_at < ?').bind(now - 30 * 86400).run();
+  return identities;
+}
+async function isLoginRateLimited(env, request, email) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const identities = await Promise.all([
+    digestHex('email:' + String(email || '').toLowerCase()),
+    digestHex('ip:' + ip)
+  ]);
+  const now = Math.floor(Date.now() / 1000);
+  for (const identity of identities) {
+    const row = await env.DB.prepare(
+      'SELECT COUNT(*) AS attempts FROM admin_login_attempts WHERE identity_hash = ? AND attempted_at >= ? AND succeeded = 0'
+    ).bind(identity, now - 15 * 60).first();
+    if (Number(row?.attempts || 0) >= 8) return true;
+  }
+  return false;
+}
 async function verifyPassword(password, stored) {
   // Format: pbkdf2-sha256$iterations$salt-hex$derived-key-hex
   const parts = String(stored || '').split('$');
@@ -87,8 +123,13 @@ async function verifyPassword(password, stored) {
   return equalConstantTime(bytesToHex(bits), expected);
 }
 async function createSession(env, email) {
-  const payload = b64url(new TextEncoder().encode(JSON.stringify({ e: email, exp: Math.floor(Date.now() / 1000) + SESSION_SECONDS, n: crypto.randomUUID() })));
-  return payload + '.' + b64url(await hmac(env.SESSION_SECRET, payload));
+  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
+  const payload = b64url(new TextEncoder().encode(JSON.stringify({ e: email, exp: expiresAt, n: crypto.randomUUID() })));
+  const token = payload + '.' + b64url(await hmac(env.SESSION_SECRET, payload));
+  const tokenHash = await digestHex(token);
+  await env.DB.prepare('INSERT INTO admin_sessions (token_hash, admin_email, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(tokenHash, email, Math.floor(Date.now() / 1000), expiresAt).run();
+  return token;
 }
 async function readSession(request, env) {
   const raw = request.headers.get('Cookie') || '';
@@ -102,7 +143,11 @@ async function readSession(request, env) {
     const payload = JSON.parse(new TextDecoder().decode(unb64url(parts[0])));
     if (!payload.e || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
     if (payload.e !== env.ADMIN_EMAIL) return null;
-    return payload;
+    const tokenHash = await digestHex(match[1]);
+    const stored = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND admin_email = ? AND expires_at > ? AND revoked_at IS NULL')
+      .bind(tokenHash, payload.e, Math.floor(Date.now() / 1000)).first();
+    if (!stored) return null;
+    return { ...payload, tokenHash };
   } catch { return null; }
 }
 async function readJson(request, maxBytes = MAX_BODY_BYTES) {
@@ -197,9 +242,14 @@ export default {
         const body = await readJson(request, 10_000);
         const email = String(body.email || '').trim().toLowerCase();
         const password = String(body.password || '');
-        if (!email || email.length > 254 || !password || password.length > 1024 ||
-            !equalConstantTime(email, String(env.ADMIN_EMAIL).toLowerCase()) ||
-            !(await verifyPassword(password, env.ADMIN_PASSWORD_HASH))) {
+        if (await isLoginRateLimited(env, request, email)) {
+          return withCors(request, env, json({ ok: false, error: 'Too many login attempts. Please wait 15 minutes and try again.', requestId }, 429, { 'Retry-After': '900' }));
+        }
+        const valid = !!email && email.length <= 254 && !!password && password.length <= 1024 &&
+          equalConstantTime(email, String(env.ADMIN_EMAIL).toLowerCase()) &&
+          await verifyPassword(password, env.ADMIN_PASSWORD_HASH);
+        await recordLoginAttempt(env, request, email, valid);
+        if (!valid) {
           return withCors(request, env, json({ ok: false, error: 'Invalid admin ID or password.', requestId }, 401));
         }
         const token = await createSession(env, env.ADMIN_EMAIL);
@@ -217,6 +267,11 @@ export default {
 
     if (path === '/api/admin/logout' && method === 'POST') {
       if (!requireMutationOrigin(request, env)) return withCors(request, env, json({ ok: false, error: 'Origin not allowed.', requestId }, 403));
+      const session = await requireAdmin(request, env);
+      if (session?.tokenHash) {
+        await env.DB.prepare('UPDATE admin_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
+          .bind(Math.floor(Date.now() / 1000), session.tokenHash).run();
+      }
       return withCors(request, env, json({ ok: true, requestId }, 200, { 'Set-Cookie': cookie('', 0) }));
     }
 
