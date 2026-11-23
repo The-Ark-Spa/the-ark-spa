@@ -52,3 +52,13 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idempotency_expiry_idx ON idempotency_keys(expires_at);
+
+-- Immutable snapshots make recovery and audit review possible after each successful content save.
+CREATE TABLE IF NOT EXISTS site_content_revisions (
+  revision INTEGER PRIMARY KEY AUTOINCREMENT,
+  data TEXT NOT NULL CHECK (json_valid(data)),
+  actor TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS site_content_revisions_created_idx ON site_content_revisions(created_at DESC);
